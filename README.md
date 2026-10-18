@@ -241,3 +241,13 @@ build: the transport is versioned and an old DLL won't talk to a new app.
    further.
 3. Sign the installer and executables, so Windows SmartScreen doesn't warn
    about an unknown publisher.
+
+## License
+
+Rust VCam's own code is licensed under either of [Apache License, Version 2.0](LICENSE-APACHE)
+or [MIT license](LICENSE-MIT), at your option.
+
+The segmentation models are not part of this repository and keep their own
+licenses: RVM is GPL-3.0 and MODNet is Apache-2.0 (see *Background effects*).
+The installer bundles them, so an installer that includes RVM is distributed
+under the GPL; this repository is its source.

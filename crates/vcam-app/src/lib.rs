@@ -5,6 +5,7 @@ pub mod capture;
 pub mod controller;
 pub mod devices;
 pub mod effects;
+/// The app icon, drawn in code (also embedded in the executables by build.rs).
 pub mod icon;
 pub mod probe;
 pub mod publisher;

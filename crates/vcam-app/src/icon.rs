@@ -1,4 +1,5 @@
-//! The app icon, drawn in code: a camera on a rounded blue square.
+// The app icon, drawn in code: a camera on a rounded blue square. (Plain
+// comment: build.rs include!s this file to embed the icon in the executables.)
 
 /// Returns `size` x `size` RGBA pixels.
 pub fn rgba(size: u32) -> Vec<u8> {

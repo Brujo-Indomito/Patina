@@ -1,0 +1,21 @@
+Rust VCam
+
+A virtual camera for Windows 11 that passes your webcam through to any video
+app (Zoom, Teams, the Camera app, OBS) with optional background blur or
+replacement.
+
+Setup installs the app, registers the Rust VCam camera with Windows (this is
+why it needs administrator rights once), and adds a Start menu shortcut. The
+app itself runs as you and lives in the system tray; closing its window keeps
+the camera available, and "Quit" in the tray menu removes it.
+
+Included models and licenses
+- Robust Video Matting (RVM) MobileNetV3, fp16 and fp32
+  https://github.com/PeterL1n/RobustVideoMatting  -  GPL-3.0
+  Used by default. Fine for personal use; redistributing this installer
+  means redistributing under the GPL.
+- MODNet (ONNX export from huggingface.co/Xenova/modnet)  -  Apache-2.0
+- ONNX Runtime (MIT) with DirectML (Microsoft), and the Microsoft Visual C++
+  runtime libraries.
+
+Rust VCam's own code is licensed MIT OR Apache-2.0.

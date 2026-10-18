@@ -96,13 +96,39 @@ on that cadence, so output follows the webcam's real timing like a hardware
 camera (repeating the last frame if none arrives within 100 ms). If the app
 isn't publishing, the source shows a dim idle pattern at 30 fps.
 
+## Install
+
+Run `RustVCam-Setup-<version>.exe` (built as described below). It installs
+to `C:\Program Files\Rust VCam`, registers the camera with Windows (one admin
+prompt), and adds a Start menu shortcut, optionally a desktop shortcut and
+"Start with Windows". It bundles the models, `DirectML.dll` and the Visual
+C++ runtime, so nothing else is needed. Uninstall from Settings > Apps; it
+removes the camera registration, the files, the shortcuts and the autostart
+entry (your settings in `%APPDATA%\RustVCam` stay).
+
+Start **Rust VCam** from the Start menu; it runs as you, in the tray.
+
 ## Build and run
 
 Requirements: Rust (MSVC toolchain) and Visual Studio Build Tools with the C++
-workload.
+workload; [Inno Setup 6](https://jrsoftware.org/isinfo.php) for the installer
+(`winget install JRSoftware.InnoSetup`).
 
 ```powershell
-# Once, from an elevated PowerShell (copies the DLL to Program Files and registers it)
+# Build everything and the installer: target\installer\RustVCam-Setup-<version>.exe
+.\scripts\package.ps1
+```
+
+`package.ps1` builds release, stages the executables, the camera DLL,
+`DirectML.dll`, the models in `models\` and the VC++ runtime DLLs into
+`target\package`, and compiles `installer\rust-vcam.iss`. Both executables
+carry the app icon and version info (embedded by `crates\vcam-app\build.rs`).
+
+For development without installing:
+
+```powershell
+# Once, from an elevated PowerShell: copies the camera DLL to
+# C:\Program Files\RustVCam and registers it
 .\scripts\install.ps1
 
 # As your normal user (not an administrator prompt: an elevated process's
@@ -110,6 +136,10 @@ workload.
 cargo build --release
 .\target\release\rust-vcam.exe
 ```
+
+`install.ps1` and the installer register the same camera, so whichever ran
+last decides which camera DLL Windows loads. After using `install.ps1`,
+reinstall (or repair) the installed version to point it back.
 
 Two programs are built from `crates/vcam-app`:
 
@@ -204,7 +234,7 @@ build: the transport is versioned and an old DLL won't talk to a new app.
    when it exits, so the setting resets on every run. Look into a
    longer-lived registration (`MFVirtualCameraLifetime_System`) or another
    way to keep the device and its setting between runs.
-2. Trim ONNX Runtime memory (arena settings, fp16 RVM) and consider GPU
-   compositing (wgpu or D3D11).
-3. An installer that registers the DLL and bundles `DirectML.dll`, the model
-   and the VC++ runtime.
+2. Consider GPU compositing (wgpu or D3D11) to cut the CPU cost of effects
+   further.
+3. Sign the installer and executables, so Windows SmartScreen doesn't warn
+   about an unknown publisher.

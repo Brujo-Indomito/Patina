@@ -1,4 +1,4 @@
-//! Background effects: blur or replace everything the segmentation matte marks
+﻿//! Background effects: blur or replace everything the segmentation matte marks
 //! as background. Works directly on NV12 frames on the CPU.
 //!
 //! Per frame:
@@ -199,9 +199,9 @@ impl Effects {
         Ok(())
     }
 
-    /// "RVM on DirectML (GPU)" once the model has loaded.
+    /// "RVM fp16 on DirectML (GPU)" once the model has loaded.
     pub fn description(&self) -> Option<String> {
-        Some(format!("{} on {}", self.segmenter.kind()?, self.segmenter.backend()?))
+        Some(format!("{} on {}", self.segmenter.label()?, self.segmenter.backend()?))
     }
 
     pub fn backend(&self) -> Option<Backend> {
@@ -254,7 +254,7 @@ impl Effects {
         let backend = self.segmenter.backend();
         if !self.reported_backend {
             if let Some(backend) = backend {
-                let model = self.segmenter.kind().map_or("model".to_string(), |kind| kind.to_string());
+                let model = self.segmenter.label().unwrap_or_else(|| "model".to_string());
                 println!("Segmentation: {model} on {backend}.");
                 self.reported_backend = true;
             }

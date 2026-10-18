@@ -161,9 +161,16 @@ impl Model {
     }
 
     /// Whether the model computes in half precision.
-    #[cfg(test)]
     fn is_half(&self) -> bool {
         matches!(self.states, RvmStates::F16(_))
+    }
+
+    /// "RVM fp16", "RVM fp32" or "MODNet".
+    fn label(&self) -> String {
+        match self.kind {
+            ModelKind::Rvm => format!("RVM {}", if self.is_half() { "fp16" } else { "fp32" }),
+            ModelKind::Modnet => ModelKind::Modnet.to_string(),
+        }
     }
 
     fn create_session(environment: &ort::environment::Environment, bytes: &[u8], allow_gpu: bool) -> Result<(Session, Backend), Error> {
@@ -369,6 +376,8 @@ struct Slots {
     failed: Option<String>,
     /// Set once the model has loaded.
     loaded: Option<(Backend, ModelKind)>,
+    /// For example "RVM fp16", once loaded.
+    label: Option<String>,
 }
 
 struct Shared {
@@ -461,6 +470,11 @@ impl Segmenter {
         self.slots().loaded.map(|(_, kind)| kind)
     }
 
+    /// "RVM fp16", "RVM fp32" or "MODNet", once the model has loaded.
+    pub fn label(&self) -> Option<String> {
+        self.slots().label.clone()
+    }
+
     /// Takes the load/inference error, if one happened since the last call.
     pub fn take_error(&self) -> Option<String> {
         self.slots().failed.take()
@@ -495,7 +509,11 @@ fn worker(shared: &Shared, model_path: &Path, allow_gpu: bool) {
         }
     };
     let (width, height) = model.kind.input_size();
-    lock().loaded = Some((model.backend, model.kind));
+    {
+        let mut slots = lock();
+        slots.loaded = Some((model.backend, model.kind));
+        slots.label = Some(model.label());
+    }
 
     let mut matte = Vec::with_capacity(width * height);
     loop {

@@ -17,14 +17,16 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use half::f16;
+use half::slice::HalfFloatSliceExt;
 use ort::ep;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
-use ort::value::{Shape, TensorRef};
+use ort::value::{Shape, TensorElementType, TensorRef, ValueType};
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 
@@ -68,18 +70,29 @@ impl std::fmt::Display for ModelKind {
 /// documented recommendation for 720p portrait video ("between 256 and 512").
 const RVM_DOWNSAMPLE_RATIO: f32 = 0.5;
 
-/// Known model files, in order of preference, with their SHA-256.
-pub const KNOWN_MODELS: [(&str, &str); 2] = [
-    // github.com/PeterL1n/RobustVideoMatting release v1.0.0 (GPL-3.0)
-    ("rvm_mobilenetv3_fp32.onnx", "88d4531297118f595bf2fd60f6f566aec2e559393802d1f436c380f0cbbd2828"),
-    // huggingface.co/Xenova/modnet onnx/model.onnx (Apache-2.0)
-    ("modnet.onnx", "07c308cf0fc7e6e8b2065a12ed7fc07e1de8febb7dc7839d7b7f15dd66584df9"),
+/// Known model files with their SHA-256. RVM files come from
+/// github.com/PeterL1n/RobustVideoMatting release v1.0.0 (GPL-3.0); MODNet is
+/// onnx/model.onnx from huggingface.co/Xenova/modnet (Apache-2.0).
+pub const RVM_FP16: &str = "rvm_mobilenetv3_fp16.onnx";
+pub const RVM_FP32: &str = "rvm_mobilenetv3_fp32.onnx";
+pub const MODNET: &str = "modnet.onnx";
+pub const KNOWN_MODELS: [(&str, &str); 3] = [
+    (RVM_FP16, "6a0d5ce6cc17702613be548559879b4521ed424cfe14ddc48d1acaa44d616f64"),
+    (RVM_FP32, "88d4531297118f595bf2fd60f6f566aec2e559393802d1f436c380f0cbbd2828"),
+    (MODNET, "07c308cf0fc7e6e8b2065a12ed7fc07e1de8febb7dc7839d7b7f15dd66584df9"),
 ];
+
+/// Finds RVM, preferring the fp16 export on the GPU (half the memory; GPUs
+/// compute fp16 natively) and fp32 on the CPU (where fp16 is emulated and slow).
+pub fn rvm_path(gpu: bool) -> Option<PathBuf> {
+    let order = if gpu { [RVM_FP16, RVM_FP32] } else { [RVM_FP32, RVM_FP16] };
+    order.into_iter().find_map(find_model)
+}
 
 /// Finds a known model, preferring RVM: in `models\` next to the executable,
 /// then in the workspace's `models\` directory (for `cargo run`).
-pub fn default_model_path() -> Option<PathBuf> {
-    KNOWN_MODELS.iter().find_map(|(file, _)| find_model(file))
+pub fn default_model_path(gpu: bool) -> Option<PathBuf> {
+    rvm_path(gpu).or_else(|| find_model(MODNET))
 }
 
 /// Finds a model file by name in the same places as [`default_model_path`].
@@ -105,12 +118,22 @@ impl std::fmt::Display for Backend {
     }
 }
 
+/// RVM recurrent states r1..r4 from the previous frame (`None` = zeros), kept
+/// in the model's own precision.
+type States<T> = [Option<(Shape, Vec<T>)>; 4];
+
+enum RvmStates {
+    F32(States<f32>),
+    F16(States<f16>),
+}
+
 struct Model {
     session: Session,
     backend: Backend,
     kind: ModelKind,
-    /// RVM recurrent states r1..r4 from the previous frame (`None` = zeros).
-    states: [Option<(Shape, Vec<f32>)>; 4],
+    states: RvmStates,
+    /// Reused f16 copy of the input for fp16 models.
+    half_input: Vec<f16>,
 }
 
 impl Model {
@@ -121,16 +144,32 @@ impl Model {
             println!("Note: {} is not a known model build (SHA-256 {digest}); using it anyway.", path.display());
         }
 
-        let environment = ort::init().with_name("rust-vcam").build().map_err(text)?;
-        let (session, backend) = Self::create_session(&environment, &bytes, allow_gpu)?;
+        let (session, backend) = Self::create_session(environment()?, &bytes, allow_gpu)?;
         let kind = if session.inputs().iter().any(|input| input.name() == "r1i") { ModelKind::Rvm } else { ModelKind::Modnet };
-        Ok(Self { session, backend, kind, states: Default::default() })
+        let half = session
+            .inputs()
+            .first()
+            .is_some_and(|input| matches!(input.dtype(), ValueType::Tensor { ty: TensorElementType::Float16, .. }));
+        if half && kind == ModelKind::Modnet {
+            return Err("fp16 MODNet models are not supported".into());
+        }
+        if half && backend == Backend::Cpu {
+            println!("Note: running an fp16 model on the CPU is slow; the fp32 model is faster there.");
+        }
+        let states = if half { RvmStates::F16(Default::default()) } else { RvmStates::F32(Default::default()) };
+        Ok(Self { session, backend, kind, states, half_input: Vec::new() })
+    }
+
+    /// Whether the model computes in half precision.
+    #[cfg(test)]
+    fn is_half(&self) -> bool {
+        matches!(self.states, RvmStates::F16(_))
     }
 
     fn create_session(environment: &ort::environment::Environment, bytes: &[u8], allow_gpu: bool) -> Result<(Session, Backend), Error> {
         if allow_gpu {
             let gpu = (|| -> Result<Session, Error> {
-                Session::builder(environment)
+                let builder = Session::builder(environment)
                     .map_err(text)?
                     .with_optimization_level(GraphOptimizationLevel::Level3)
                     .map_err(text)?
@@ -140,23 +179,21 @@ impl Model {
                     .with_parallel_execution(false)
                     .map_err(text)?
                     .with_execution_providers([ep::DirectML::default().build().error_on_failure()])
-                    .map_err(text)?
-                    .commit_from_memory(bytes)
-                    .map_err(text)
+                    .map_err(text)?;
+                tune_memory(builder)?.commit_from_memory(bytes).map_err(text)
             })();
             match gpu {
                 Ok(session) => return Ok((session, Backend::DirectMl)),
                 Err(err) => println!("DirectML unavailable ({err}); running segmentation on the CPU."),
             }
         }
-        let session = Session::builder(environment)
+        let builder = Session::builder(environment)
             .map_err(text)?
             .with_optimization_level(GraphOptimizationLevel::Level3)
             .map_err(text)?
             .with_intra_threads(2)
-            .map_err(text)?
-            .commit_from_memory(bytes)
             .map_err(text)?;
+        let session = tune_memory(builder)?.commit_from_memory(bytes).map_err(text)?;
         Ok((session, Backend::Cpu))
     }
 
@@ -170,34 +207,96 @@ impl Model {
                 copy_matte(data, width * height, matte)
             }
             ModelKind::Rvm => {
-                let zero = [0.0f32];
-                let ratio = [RVM_DOWNSAMPLE_RATIO];
-                let state = |i: usize| match &self.states[i] {
-                    Some((shape, data)) => TensorRef::from_array_view((shape.clone(), data.as_slice())),
-                    None => TensorRef::from_array_view(([1usize, 1, 1, 1], &zero[..])),
-                };
-                let inputs = ort::inputs![
-                    "src" => src,
-                    "r1i" => state(0).map_err(text)?,
-                    "r2i" => state(1).map_err(text)?,
-                    "r3i" => state(2).map_err(text)?,
-                    "r4i" => state(3).map_err(text)?,
-                    "downsample_ratio" => TensorRef::from_array_view(([1usize], &ratio[..])).map_err(text)?,
-                ];
-                let outputs = self.session.run(inputs).map_err(text)?;
-                let (_, alpha) = outputs["pha"].try_extract_tensor::<f32>().map_err(text)?;
-                copy_matte(alpha, width * height, matte)?;
-                let mut next: [Option<(Shape, Vec<f32>)>; 4] = Default::default();
-                for (i, slot) in next.iter_mut().enumerate() {
-                    let (shape, data) = outputs[format!("r{}o", i + 1).as_str()].try_extract_tensor::<f32>().map_err(text)?;
-                    *slot = Some((shape.clone(), data.to_vec()));
+                drop(src);
+                let dims = [1usize, 3, height, width];
+                match &mut self.states {
+                    RvmStates::F32(states) => run_rvm(&mut self.session, states, dims, input, matte, |v| v),
+                    RvmStates::F16(states) => {
+                        self.half_input.resize(input.len(), f16::ZERO);
+                        self.half_input.convert_from_f32_slice(input);
+                        run_rvm(&mut self.session, states, dims, &self.half_input, matte, f16::to_f32)
+                    }
                 }
-                drop(outputs);
-                self.states = next;
-                Ok(())
             }
         }
     }
+}
+
+/// Runs one RVM step in the model's precision `T`: feeds the frame and the
+/// previous recurrent states, writes the matte as f32, and keeps the new states.
+fn run_rvm<T>(
+    session: &mut Session,
+    states: &mut States<T>,
+    dims: [usize; 4],
+    src: &[T],
+    matte: &mut Vec<f32>,
+    to_f32: impl Fn(T) -> f32,
+) -> Result<(), Error>
+where
+    T: ort::value::PrimitiveTensorElementType + Clone + Copy + Default + std::fmt::Debug + 'static,
+{
+    let zero = [T::default()];
+    let ratio = [RVM_DOWNSAMPLE_RATIO];
+    let state = |i: usize| match &states[i] {
+        Some((shape, data)) => TensorRef::from_array_view((shape.clone(), data.as_slice())),
+        None => TensorRef::from_array_view(([1usize, 1, 1, 1], &zero[..])),
+    };
+    let inputs = ort::inputs![
+        "src" => TensorRef::from_array_view((dims, src)).map_err(text)?,
+        "r1i" => state(0).map_err(text)?,
+        "r2i" => state(1).map_err(text)?,
+        "r3i" => state(2).map_err(text)?,
+        "r4i" => state(3).map_err(text)?,
+        "downsample_ratio" => TensorRef::from_array_view(([1usize], &ratio[..])).map_err(text)?,
+    ];
+    let outputs = session.run(inputs).map_err(text)?;
+    let (_, alpha) = outputs["pha"].try_extract_tensor::<T>().map_err(text)?;
+    let expected = dims[2] * dims[3];
+    if alpha.len() != expected {
+        return Err(format!("unexpected matte size {} (expected {expected})", alpha.len()).into());
+    }
+    matte.clear();
+    matte.extend(alpha.iter().map(|&a| to_f32(a)));
+    let mut next: States<T> = Default::default();
+    for (i, slot) in next.iter_mut().enumerate() {
+        let (shape, data) = outputs[format!("r{}o", i + 1).as_str()].try_extract_tensor::<T>().map_err(text)?;
+        *slot = Some((shape.clone(), data.to_vec()));
+    }
+    drop(outputs);
+    *states = next;
+    Ok(())
+}
+
+/// The process-wide ONNX Runtime environment. ONNX Runtime allows only one per
+/// process, and the app can briefly hold two models (when the model setting
+/// changes, the new one loads before the old one is dropped).
+fn environment() -> Result<&'static ort::environment::Environment, Error> {
+    static ENVIRONMENT: OnceLock<ort::environment::Environment> = OnceLock::new();
+    static INIT: Mutex<()> = Mutex::new(());
+    if let Some(environment) = ENVIRONMENT.get() {
+        return Ok(environment);
+    }
+    let _guard = INIT.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(environment) = ENVIRONMENT.get() {
+        return Ok(environment);
+    }
+    let environment = ort::init().with_name("rust-vcam").build().map_err(text)?;
+    Ok(ENVIRONMENT.get_or_init(|| environment))
+}
+
+/// Keeps ONNX Runtime from holding on to peak-size CPU buffers: no CPU memory
+/// arena, and weights allocated directly rather than through it. Measured
+/// with RVM fp32 on the CPU, private memory went from 197 MB to 114 MB at the
+/// same speed; on DirectML the gain is small (~2%), since most memory there
+/// belongs to the GPU device.
+fn tune_memory(mut builder: ort::session::builder::SessionBuilder) -> Result<ort::session::builder::SessionBuilder, Error> {
+    use ort::AsPointer;
+    let status = unsafe { (ort::api().DisableCpuMemArena)(builder.ptr_mut()) };
+    if !status.0.is_null() {
+        unsafe { (ort::api().ReleaseStatus)(status.0) };
+        return Err("DisableCpuMemArena failed".into());
+    }
+    builder.with_config_entry("session.use_device_allocator_for_initializers", "1").map_err(text)
 }
 
 fn copy_matte(data: &[f32], expected: usize, matte: &mut Vec<f32>) -> Result<(), Error> {
@@ -456,25 +555,48 @@ mod tests {
         assert_eq!(yuv_to_rgb(16, 128, 128), [0, 0, 0]);
     }
 
-    /// Runs the real RVM model on synthetic frames when it has been downloaded
-    /// (skipped otherwise): checks I/O names, matte size, and that recurrent
-    /// state is carried between frames.
-    #[test]
-    fn rvm_runs_and_carries_state_when_available() {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../models/rvm_mobilenetv3_fp32.onnx");
+    /// Runs a real RVM model on synthetic frames when it has been downloaded
+    /// (skipped otherwise): checks precision detection, matte size and range,
+    /// and that recurrent state is carried between frames.
+    fn check_rvm(file: &str, expect_half: bool) {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../models").join(file);
         if !path.is_file() {
             eprintln!("skipping: {} not present", path.display());
             return;
         }
         let mut model = Model::load(&path, false).unwrap();
         assert_eq!(model.kind, ModelKind::Rvm);
+        assert_eq!(model.is_half(), expect_half);
         let (w, h) = ModelKind::Rvm.input_size();
         let input = vec![0.5f32; 3 * w * h];
         let mut matte = Vec::new();
         model.infer(&input, &mut matte).unwrap();
         assert_eq!(matte.len(), w * h);
         assert!(matte.iter().all(|a| (0.0..=1.0).contains(a)));
-        assert!(model.states.iter().all(|s| s.as_ref().is_some_and(|(_, data)| data.len() > 1)));
+        let carried = match &model.states {
+            RvmStates::F32(states) => states.iter().all(|s| s.as_ref().is_some_and(|(_, data)| data.len() > 1)),
+            RvmStates::F16(states) => states.iter().all(|s| s.as_ref().is_some_and(|(_, data)| data.len() > 1)),
+        };
+        assert!(carried, "recurrent state was not kept");
         model.infer(&input, &mut matte).unwrap();
+    }
+
+    #[test]
+    fn rvm_fp32_runs_and_carries_state_when_available() {
+        check_rvm(RVM_FP32, false);
+    }
+
+    #[test]
+    fn rvm_fp16_runs_and_carries_state_when_available() {
+        check_rvm(RVM_FP16, true);
+    }
+
+    #[test]
+    fn rvm_preference_depends_on_backend() {
+        // Only meaningful when both files are present.
+        if let (Some(fp16), Some(fp32)) = (find_model(RVM_FP16), find_model(RVM_FP32)) {
+            assert_eq!(rvm_path(true), Some(fp16));
+            assert_eq!(rvm_path(false), Some(fp32));
+        }
     }
 }

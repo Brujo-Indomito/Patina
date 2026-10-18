@@ -31,6 +31,10 @@ const CONNECT_RETRY: Duration = Duration::from_millis(250);
 const IDLE_POLL: Duration = Duration::from_millis(100);
 const CAMERA_RETRY: Duration = Duration::from_secs(5);
 const RATE_REPORT: Duration = Duration::from_secs(5);
+/// Unload the segmentation model after this long without a client or preview.
+/// Most of its memory is the GPU device, ~300 MB that an idle tray app
+/// shouldn't hold; reloading takes about a second.
+const EFFECTS_IDLE_UNLOAD: Duration = Duration::from_secs(30);
 /// Format used for the preview while no client is watching.
 const PREVIEW_FORMAT: FrameFormat = FrameFormat { pixel: PixelFormat::Nv12, width: 1280, height: 720 };
 /// Preview frames are scaled down to this size for the UI.
@@ -184,6 +188,10 @@ pub fn run(control: &Control) {
     let mut frames_sent = 0u64;
     let mut preview_sequence = 0u64;
     let mut stats = RateStats::new();
+    // When frames stopped being needed, to unload the model after a while.
+    let mut idle_since: Option<Instant> = None;
+    // Set when loading the effect failed for the current configuration.
+    let mut effects_failed = false;
 
     while !control.stop.load(Ordering::Relaxed) {
         // Apply configuration changes.
@@ -191,6 +199,7 @@ pub fn run(control: &Control) {
         if applied.as_ref().map(|(v, _)| *v) != Some(version) {
             apply_config(control, applied.as_ref().map(|(_, c)| c), &config, &mut camera, &mut effects);
             camera_retry_at = Instant::now();
+            effects_failed = false;
             applied = Some((version, config.clone()));
         }
 
@@ -221,10 +230,20 @@ pub fn run(control: &Control) {
             if camera.take().is_some() {
                 control.log("Webcam closed.".into());
             }
+            // Release the model (and its GPU device) once idle for a while.
+            let idle_for = idle_since.get_or_insert_with(Instant::now).elapsed();
+            if effects.is_some() && idle_for >= EFFECTS_IDLE_UNLOAD {
+                unload_effects(control, &mut effects);
+                control.log("Unloaded the segmentation model while idle.".into());
+            }
             std::thread::sleep(IDLE_POLL);
             continue;
         };
+        idle_since = None;
         control.update_status(|s| (s.client, s.previewing) = (client, previewing));
+        if matches!(config.feed, Feed::Camera(_)) && !effects_failed {
+            effects_failed = !ensure_effects(control, &config, &mut effects);
+        }
 
         if active_format != Some(format) {
             control.log(match client {
@@ -320,30 +339,59 @@ fn apply_config(control: &Control, old: Option<&Config>, new: &Config, camera: &
         *camera = None; // reopened with the new feed on the next frame
         control.update_status(|s| s.camera = None);
     }
+    // The model itself is loaded lazily by `ensure_effects` when frames need it.
     let model_changed = old.is_some_and(|c| c.model != new.model || c.allow_gpu != new.allow_gpu);
     match &new.effect {
         None => {
-            if effects.take().is_some() {
+            if old.is_some_and(|c| c.effect.is_some()) {
                 control.log("Effect: none.".into());
             }
-            control.update_status(|s| (s.segmentation, s.timings, s.coverage) = (None, None, None));
+            unload_effects(control, effects);
         }
         Some(effect) => {
-            let reuse = effects.as_mut().filter(|_| !model_changed);
-            let result = match reuse {
-                Some(existing) => existing.set_effect(effect.clone()),
-                None => create_effects(new, effect).map(|created| *effects = Some(created)),
-            };
-            match result {
-                Ok(()) => control.log(format!("Effect: {effect}.")),
-                Err(err) => control.problem(err),
+            if model_changed {
+                unload_effects(control, effects);
             }
+            if let Some(existing) = effects.as_mut() {
+                if let Err(err) = existing.set_effect(effect.clone()) {
+                    control.problem(err);
+                    unload_effects(control, effects);
+                }
+            }
+            control.log(format!("Effect: {effect}."));
         }
     }
 }
 
+/// Loads the effect pipeline if the configuration wants one and it isn't
+/// loaded. Returns false if loading failed (reported once per configuration).
+fn ensure_effects(control: &Control, config: &Config, effects: &mut Option<Effects>) -> bool {
+    let Some(effect) = &config.effect else { return true };
+    if effects.is_some() {
+        return true;
+    }
+    match create_effects(config, effect) {
+        Ok(created) => {
+            control.log("Loading the segmentation model.".into());
+            *effects = Some(created);
+            true
+        }
+        Err(err) => {
+            control.problem(err);
+            false
+        }
+    }
+}
+
+/// Drops the effect pipeline, releasing the model and its GPU device.
+fn unload_effects(control: &Control, effects: &mut Option<Effects>) {
+    if effects.take().is_some() {
+        control.update_status(|s| (s.segmentation, s.timings, s.coverage) = (None, None, None));
+    }
+}
+
 fn create_effects(config: &Config, effect: &Effect) -> Result<Effects, String> {
-    let model = config.model.clone().or_else(segment::default_model_path).ok_or_else(|| {
+    let model = config.model.clone().or_else(|| segment::default_model_path(config.allow_gpu)).ok_or_else(|| {
         let files: Vec<&str> = segment::KNOWN_MODELS.iter().map(|(file, _)| *file).collect();
         format!("Segmentation model not found. Put {} in the models folder.", files.join(" or "))
     })?;

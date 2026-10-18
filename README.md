@@ -39,22 +39,32 @@ CPU. Two models are supported and detected automatically:
 
 | Model | File | License | Notes |
 |---|---|---|---|
-| [Robust Video Matting](https://github.com/PeterL1n/RobustVideoMatting) MobileNetV3 (default) | `rvm_mobilenetv3_fp32.onnx`, 15.0 MB | **GPL-3.0** | Made for webcam video; recurrent state across frames keeps it stable and keeps arms and hands. Runs at 960x540 with its low-res pass at 480x270, as RVM recommends for 720p portrait video; ~16-24 ms per frame on DirectML here. |
+| [Robust Video Matting](https://github.com/PeterL1n/RobustVideoMatting) MobileNetV3, fp16 (default on the GPU) | `rvm_mobilenetv3_fp16.onnx`, 7.5 MB | **GPL-3.0** | Made for webcam video; recurrent state across frames keeps it stable and keeps arms and hands. Runs at 960x540 with its low-res pass at 480x270, as RVM recommends for 720p portrait video; ~18 ms per frame on DirectML here. Uses 25% less GPU memory than fp32. |
+| RVM MobileNetV3, fp32 (default on the CPU) | `rvm_mobilenetv3_fp32.onnx`, 15.0 MB | **GPL-3.0** | Same model in full precision; fp16 is emulated and slow on the CPU. |
 | [MODNet](https://github.com/ZHKKKe/MODNet) | `modnet.onnx`, 25.9 MB | Apache-2.0 | Single-image portrait matting; flickers more and drops hands away from the body. Runs at 512x288. |
 
 RVM is GPL-3.0: fine for personal use, but distributing the app with it means
 distributing under the GPL. MODNet has no such condition.
 
 ```powershell
+Invoke-WebRequest https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_mobilenetv3_fp16.onnx -OutFile models\rvm_mobilenetv3_fp16.onnx
 Invoke-WebRequest https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_mobilenetv3_fp32.onnx -OutFile models\rvm_mobilenetv3_fp32.onnx
 Invoke-WebRequest https://huggingface.co/Xenova/modnet/resolve/main/onnx/model.onnx -OutFile models\modnet.onnx
 ```
 
-SHA-256: RVM `88d4531297118f595bf2fd60f6f566aec2e559393802d1f436c380f0cbbd2828`,
+SHA-256: RVM fp16 `6a0d5ce6cc17702613be548559879b4521ed424cfe14ddc48d1acaa44d616f64`,
+RVM fp32 `88d4531297118f595bf2fd60f6f566aec2e559393802d1f436c380f0cbbd2828`,
 MODNet `07c308cf0fc7e6e8b2065a12ed7fc07e1de8febb7dc7839d7b7f15dd66584df9` (the
-app warns about unknown files). It uses the first of these found in `models\`
-next to the executable, then in the repository's `models\` folder;
-`--model PATH` picks one explicitly.
+app warns about unknown files). The app looks in `models\` next to the
+executable, then in the repository's `models\` folder, and prefers RVM (fp16
+with the GPU, fp32 without), then MODNet; `--model PATH` or the settings
+window picks one explicitly.
+
+ONNX Runtime runs without its CPU memory arena and allocates weights
+directly, so it doesn't keep peak-size buffers around (on the CPU path this
+cut private memory from 197 MB to 114 MB at the same speed). The model is
+loaded only while frames need it and unloaded after 30 seconds without a
+client or preview, which releases its GPU device.
 
 The model runs on its own thread, one frame ahead of compositing: frame N is
 submitted while frame N-1 is blended with its own mask, which the GPU computed
@@ -148,18 +158,31 @@ To remove everything: `.\scripts\uninstall.ps1` (elevated).
 Measured on the development machine (20 cores) with a 2560x1440 webcam
 scaled to 1280x720 NV12, release build, for `vcam-app` while a client watches:
 
-| Mode | CPU (one core) | Working set | Notes |
+Effect pipeline, from `vcam-app --bench-effects` (synthetic 720p frames at
+30 fps, no camera; includes rendering those frames), measured with
+`scripts\measure-memory.ps1`:
+
+| Mode | CPU (one core) | Working set | Private | GPU memory | Notes |
+|---|---|---|---|---|---|
+| Blur, RVM fp16 on DirectML | ~70% | ~300 MB | ~430 MB | 164 MB | ~6 ms per frame; segmentation 30/s at ~18 ms |
+| Blur, RVM fp32 on DirectML | ~75% | ~293 MB | ~474 MB | 218 MB | segmentation at ~20 ms |
+| Blur, RVM fp32 on the CPU | ~240% | ~129 MB | ~114 MB | 0 | segmentation ~9/s at ~115 ms; video stays at 30 fps |
+
+About 300 MB of the DirectML rows' private memory is the GPU device itself
+(D3D12, DirectML and the driver), independent of the model.
+
+The settings/tray app (`rust-vcam`) with Blur on and the preview off:
+
+| State | Working set | Private | GPU memory |
 |---|---|---|---|
-| Passthrough | ~12% | 50 MB | |
-| Blur, RVM on DirectML | ~75% (3.7% of the machine)* | ~296 MB | per frame: prepare ~0.7 ms, wait 0 ms, composite ~5 ms; segmentation 30/s at ~20 ms |
-| Blur, `--cpu` (MODNet) | not measured | not measured | segmentation ~8/s at ~130 ms; video stays at 30 fps |
+| Idle at start (model not loaded) | 150 MB | 94 MB | 0 |
+| Streaming blur to a client | 467 MB | 542 MB | 164 MB |
+| 40 s after the client left (model unloaded) | 208 MB | 128 MB | 0 |
 
-\* From `vcam-app --bench-effects`, which times the effect pipeline on
-synthetic 720p frames at 30 fps without a camera (and includes rendering those
-frames). Before pipelining and parallel compositing the same pipeline took
-~36 ms per frame, over the 33 ms budget.
-
-With no client watching, CPU use is 0% and the webcam is closed.
+Plain passthrough uses about 12% of one core and 50 MB. With no client
+watching, CPU use is 0% and the webcam is closed. Before pipelining and
+parallel compositing the effect pipeline took ~36 ms per frame, over the 33 ms
+budget.
 
 ## Debugging
 

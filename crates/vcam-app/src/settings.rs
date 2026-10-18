@@ -50,12 +50,12 @@ impl ModelChoice {
         }
     }
 
-    /// The model file this choice resolves to, if it is available.
-    pub fn path(self) -> Option<PathBuf> {
+    /// The model file this choice resolves to for the given backend, if available.
+    pub fn path(self, gpu: bool) -> Option<PathBuf> {
         match self {
-            ModelChoice::Automatic => segment::default_model_path(),
-            ModelChoice::Rvm => segment::find_model(segment::KNOWN_MODELS[0].0),
-            ModelChoice::Modnet => segment::find_model(segment::KNOWN_MODELS[1].0),
+            ModelChoice::Automatic => segment::default_model_path(gpu),
+            ModelChoice::Rvm => segment::rvm_path(gpu),
+            ModelChoice::Modnet => segment::find_model(segment::MODNET),
         }
     }
 }
@@ -123,7 +123,7 @@ impl Settings {
         Config {
             feed: Feed::Camera(self.camera.clone()),
             effect: self.effect(),
-            model: self.model.path(),
+            model: self.model.path(self.use_gpu),
             allow_gpu: self.use_gpu,
         }
     }

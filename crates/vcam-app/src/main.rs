@@ -113,7 +113,7 @@ fn resolve_model(options: &RunOptions) -> Option<PathBuf> {
             std::process::exit(2);
         }
     }
-    let model = options.model.clone().or_else(segment::default_model_path).unwrap_or_else(|| {
+    let model = options.model.clone().or_else(|| segment::default_model_path(options.allow_gpu)).unwrap_or_else(|| {
         let files: Vec<&str> = segment::KNOWN_MODELS.iter().map(|(file, _)| *file).collect();
         eprintln!("Segmentation model not found. Put {} in the models folder or pass --model PATH.", files.join(" or "));
         std::process::exit(2);

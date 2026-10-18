@@ -9,7 +9,8 @@ description = "Rust VCam: the settings and tray app (rust-vcam) and the command-
 windows.workspace = true
 windows-core.workspace = true
 vcam-shared = { path = "../vcam-shared" }
-ort = { version = "=2.0.0-rc.14", features = ["directml"] }
+ort = { version = "=2.0.0-rc.14", features = ["directml", "half"] }
+half = "2.1"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
 sha2 = "0.10"
 rayon = "1.12.0"

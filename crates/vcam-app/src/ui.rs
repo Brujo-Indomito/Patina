@@ -270,7 +270,7 @@ impl App {
             let current = self.settings.model;
             egui::ComboBox::from_id_salt("model").selected_text(current.label()).width(260.0).show_ui(ui, |ui| {
                 for choice in ModelChoice::ALL {
-                    let available = choice.path().is_some();
+                    let available = choice.path(self.settings.use_gpu).is_some();
                     let label = if available { choice.label().to_string() } else { format!("{} (not found)", choice.label()) };
                     ui.add_enabled_ui(available, |ui| ui.selectable_value(&mut self.settings.model, choice, label));
                 }

@@ -1,0 +1,20 @@
+[package]
+name = "vcam-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Rust VCam: the settings and tray app (rust-vcam) and the command-line tool (vcam-app)"
+
+[dependencies]
+windows.workspace = true
+windows-core.workspace = true
+vcam-shared = { path = "../vcam-shared" }
+ort = { version = "=2.0.0-rc.14", features = ["directml"] }
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
+sha2 = "0.10"
+rayon = "1.12.0"
+eframe = { version = "0.37.0", default-features = false, features = ["glow", "default_fonts"] }
+tray-icon = "0.26.1"
+rfd = "0.17.2"
+serde = { version = "1.0.229", features = ["derive"] }
+toml = "1.1.8"

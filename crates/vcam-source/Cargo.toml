@@ -1,0 +1,15 @@
+[package]
+name = "vcam-source"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Media Foundation virtual camera media source (COM in-proc server)"
+
+[lib]
+name = "rust_vcam_source"
+crate-type = ["cdylib"]
+
+[dependencies]
+windows.workspace = true
+windows-core.workspace = true
+vcam-shared = { path = "../vcam-shared" }

@@ -9,12 +9,22 @@
   registers its CLSID under HKLM with regsvr32, and creates a log folder the
   service can write to.
 
+  This is for development. The installer (RustVCam-Setup-*.exe) registers the
+  same camera from C:\Program Files\Rust VCam; whichever registered last is
+  the DLL Windows loads. If the installed app's registration is active, this
+  script stops unless -Force is given.
+
 .PARAMETER Configuration
   Cargo profile to build and install: release (default) or debug.
+
+.PARAMETER Force
+  Register the development DLL even though the installed app's camera is
+  registered. Rerun the installer afterwards to switch back.
 #>
 param(
     [ValidateSet('release', 'debug')]
-    [string]$Configuration = 'release'
+    [string]$Configuration = 'release',
+    [switch]$Force
 )
 
 $ErrorActionPreference = 'Stop'
@@ -22,6 +32,13 @@ $root = Split-Path -Parent $PSScriptRoot
 $installDir = Join-Path $env:ProgramFiles 'RustVCam'
 $logDir = Join-Path $env:ProgramData 'RustVCam'
 $dllName = 'rust_vcam_source.dll'
+
+$clsidKey = 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Classes\CLSID\{E3C40D88-220A-4FD1-94D8-BC3F22833AFA}\InprocServer32'
+$registered = (Get-ItemProperty -Path $clsidKey -ErrorAction SilentlyContinue).'(default)'
+$installedDir = Join-Path $env:ProgramFiles 'Rust VCam'
+if ($registered -and $registered.StartsWith($installedDir, [StringComparison]::OrdinalIgnoreCase) -and -not $Force) {
+    throw "The installed Rust VCam ($registered) owns the camera registration. Re-run with -Force to register the development DLL instead (rerun the installer afterwards to switch back)."
+}
 
 $cargo = Join-Path $env:USERPROFILE '.cargo\bin\cargo.exe'
 if (-not (Test-Path $cargo)) { $cargo = 'cargo' }

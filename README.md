@@ -138,8 +138,11 @@ cargo build --release
 ```
 
 `install.ps1` and the installer register the same camera, so whichever ran
-last decides which camera DLL Windows loads. After using `install.ps1`,
-reinstall (or repair) the installed version to point it back.
+last decides which camera DLL Windows loads. When the installed app's
+registration is active, `install.ps1` stops unless you pass `-Force`; rerun
+the installer afterwards to point the camera back at the installed app.
+`uninstall.ps1` only removes the development copy and never unregisters the
+installed app's camera.
 
 Two programs are built from `crates/vcam-app`:
 

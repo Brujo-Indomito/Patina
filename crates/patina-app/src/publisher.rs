@@ -17,9 +17,9 @@ use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use rayon::prelude::*;
-use vcam_shared::pattern::{Style, TestPattern};
-use vcam_shared::shm::{now_ms, Producer};
-use vcam_shared::{FrameFormat, PixelFormat};
+use patina_shared::pattern::{Style, TestPattern};
+use patina_shared::shm::{now_ms, Producer};
+use patina_shared::{FrameFormat, PixelFormat};
 
 use crate::capture::Camera;
 use crate::devices;

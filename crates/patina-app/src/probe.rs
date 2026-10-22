@@ -3,7 +3,7 @@
 //! Reports the negotiated format, the delivered frame rate, what kind of
 //! content arrived (the app's test pattern, the source's idle pattern, or
 //! something else such as a webcam), and how many frames differed from the
-//! previous one. Set `RUST_VCAM_PROBE_SNAPSHOT=path.bmp` to save the last frame.
+//! previous one. Set `PATINA_PROBE_SNAPSHOT=path.bmp` to save the last frame.
 
 use std::time::Instant;
 
@@ -29,7 +29,7 @@ pub fn probe(camera_name: &str, frame_count: u32) -> Result<()> {
     }
 
     let Some(device) = devices.into_iter().find(|d| d.name.starts_with(camera_name)) else {
-        println!("\"{camera_name}\" not found. Is vcam-app running?");
+        println!("\"{camera_name}\" not found. Is patina-cli running?");
         return Err(MF_E_NOT_FOUND.into());
     };
 
@@ -109,7 +109,7 @@ fn read_frames(source: &IMFMediaSource, frame_count: u32) -> Result<()> {
         counts[Content::Other as usize]
     );
 
-    if let (Some(path), true) = (std::env::var_os("RUST_VCAM_PROBE_SNAPSHOT"), is_nv12) {
+    if let (Some(path), true) = (std::env::var_os("PATINA_PROBE_SNAPSHOT"), is_nv12) {
         write_bmp(std::path::Path::new(&path), &previous, width, height).map_err(|e| windows_core::Error::new(MF_E_UNEXPECTED, e.to_string()))?;
         println!("Saved the last frame to {}", std::path::Path::new(&path).display());
     }

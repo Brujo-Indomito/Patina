@@ -1,9 +1,9 @@
 [package]
-name = "vcam-shared"
+name = "patina-shared"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Frame format, test pattern and shared-memory transport shared by the Rust VCam app and source"
+description = "Frame format, test pattern and shared-memory transport shared by the Patina app and source"
 
 [dependencies]
 windows.workspace = true

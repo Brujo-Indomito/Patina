@@ -20,7 +20,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use rayon::prelude::*;
-use vcam_shared::{FrameFormat, PixelFormat};
+use patina_shared::{FrameFormat, PixelFormat};
 
 use crate::segment::{Backend, Matte, ModelKind, Segmenter};
 
@@ -48,8 +48,9 @@ struct MatteTuning {
 impl MatteTuning {
     fn for_model(kind: ModelKind) -> Self {
         match kind {
-            // MODNet is uncertain inside the person in low light: push it to opaque.
-            ModelKind::Modnet => Self { smooth: true, low: 0.2, high: 0.6 },
+            // MediaPipe returns a confidence, not a matte: a band around 0.5
+            // gives a soft edge without background halos.
+            ModelKind::MediaPipe => Self { smooth: true, low: 0.3, high: 0.7 },
             // RVM's alpha is a calibrated matte: only trim near-0/near-1 noise
             // so hair and edges keep their softness.
             ModelKind::Rvm => Self { smooth: false, low: 0.05, high: 0.95 },
@@ -331,7 +332,7 @@ impl Effects {
         if self.matte_source.as_ref().is_some_and(|previous| Arc::ptr_eq(previous, &matte)) {
             return;
         }
-        let tuning = MatteTuning::for_model(self.segmenter.kind().unwrap_or(ModelKind::Modnet));
+        let tuning = MatteTuning::for_model(self.segmenter.kind().unwrap_or(ModelKind::MediaPipe));
         let source = if tuning.smooth {
             smooth_matte(&mut self.smoothed, &matte.alpha);
             &self.smoothed

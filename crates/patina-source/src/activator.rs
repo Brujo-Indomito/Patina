@@ -15,7 +15,7 @@ use windows_core::{implement, ComObject, Result, GUID};
 use crate::attributes::delegate_attributes;
 use crate::log::{log, trace};
 use crate::source::{self, MediaSource};
-use crate::CLSID_RUST_VCAM;
+use crate::CLSID_PATINA;
 
 #[implement(IMFActivate, IMFAttributes)]
 pub struct Activator {
@@ -30,7 +30,7 @@ impl Activator {
         let attributes = attributes.ok_or_else(|| windows_core::Error::from(E_POINTER))?;
         unsafe {
             attributes.SetUINT32(&MF_VIRTUALCAMERA_PROVIDE_ASSOCIATED_CAMERA_SOURCES, 1)?;
-            attributes.SetGUID(&MFT_TRANSFORM_CLSID_Attribute, &CLSID_RUST_VCAM)?;
+            attributes.SetGUID(&MFT_TRANSFORM_CLSID_Attribute, &CLSID_PATINA)?;
         }
         Ok(Self { attributes, source: Mutex::new(None) })
     }

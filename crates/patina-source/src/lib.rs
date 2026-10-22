@@ -1,4 +1,4 @@
-//! Rust VCam media source: a COM in-process server that the Windows Camera
+//! Patina media source: a COM in-process server that the Windows Camera
 //! Frame Server loads to back a virtual camera created with
 //! `MFCreateVirtualCamera`.
 //!
@@ -30,8 +30,8 @@ use crate::activator::Activator;
 use crate::log::log;
 
 /// CLSID of the media source activator. The host app passes this to `MFCreateVirtualCamera`.
-pub const CLSID_RUST_VCAM: GUID = GUID::from_u128(0xE3C40D88_220A_4FD1_94D8_BC3F22833AFA);
-const FRIENDLY_NAME: &str = "Rust VCam Source";
+pub const CLSID_PATINA: GUID = GUID::from_u128(0xE3C40D88_220A_4FD1_94D8_BC3F22833AFA);
+const FRIENDLY_NAME: &str = "Patina Source";
 
 static MODULE: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
 
@@ -71,7 +71,7 @@ unsafe extern "system" fn DllGetClassObject(clsid: *const GUID, riid: *const GUI
         return E_POINTER;
     }
     *ppv = std::ptr::null_mut();
-    if *clsid != CLSID_RUST_VCAM {
+    if *clsid != CLSID_PATINA {
         return CLASS_E_CLASSNOTAVAILABLE;
     }
     let factory: IUnknown = ComObject::new(ClassFactory).into_interface();
@@ -102,7 +102,7 @@ extern "system" fn DllUnregisterServer() -> HRESULT {
 }
 
 fn clsid_key() -> String {
-    format!("SOFTWARE\\Classes\\CLSID\\{{{:?}}}", CLSID_RUST_VCAM)
+    format!("SOFTWARE\\Classes\\CLSID\\{{{:?}}}", CLSID_PATINA)
 }
 
 fn module_path() -> Result<String> {

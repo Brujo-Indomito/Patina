@@ -1,23 +1,25 @@
-Rust VCam
+Patina
 
 A virtual camera for Windows 11 that passes your webcam through to any video
 app (Zoom, Teams, the Camera app, OBS) with optional background blur or
 replacement.
 
-Setup installs the app, registers the Rust VCam camera with Windows (this is
+Setup installs the app, registers the Patina camera with Windows (this is
 why it needs administrator rights once), and adds a Start menu shortcut. The
 app itself runs as you and lives in the system tray. The camera stays
 registered even after "Quit" (it then shows a dim idle pattern), so Windows
 keeps its settings, such as "Allow multiple apps to use camera at the same
 time", between runs.
 
-Included models and licenses
-- Robust Video Matting (RVM) MobileNetV3, fp16 and fp32
-  https://github.com/PeterL1n/RobustVideoMatting  -  GPL-3.0
-  Used by default. Fine for personal use; redistributing this installer
-  means redistributing under the GPL.
-- MODNet (ONNX export from huggingface.co/Xenova/modnet)  -  Apache-2.0
+Included model and libraries
+- MediaPipe Selfie Segmentation, landscape (Google; ONNX export from
+  huggingface.co/onnx-community/mediapipe_selfie_segmentation_landscape)
+  -  Apache-2.0
 - ONNX Runtime (MIT) with DirectML (Microsoft), and the Microsoft Visual C++
   runtime libraries.
 
-Rust VCam's own code is licensed MIT OR Apache-2.0.
+Optional: for the smoothest edges, download Robust Video Matting (RVM,
+GPL-3.0, github.com/PeterL1n/RobustVideoMatting) into the models folder and
+pick it in Settings. It is not included in this installer.
+
+Patina's own code is licensed MIT OR Apache-2.0.

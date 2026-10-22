@@ -5,7 +5,7 @@ use windows::Win32::System::Com::CoTaskMemFree;
 use windows_core::{Result, GUID, PWSTR};
 
 /// Prefix of our own virtual camera's device name; never captured from.
-pub const OWN_CAMERA_PREFIX: &str = "Rust VCam";
+pub const OWN_CAMERA_PREFIX: &str = "Patina";
 
 pub struct Device {
     pub name: String,

@@ -8,7 +8,7 @@
 use windows::Win32::Media::MediaFoundation::*;
 use windows_core::{Interface, Result, GUID};
 
-use vcam_shared::{FrameFormat, PixelFormat};
+use patina_shared::{FrameFormat, PixelFormat};
 
 use crate::devices::{subtype_name, Device};
 

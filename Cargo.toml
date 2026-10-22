@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/vcam-shared", "crates/vcam-source", "crates/vcam-app"]
+members = ["crates/patina-shared", "crates/patina-source", "crates/patina-app"]
 
 [workspace.package]
 version = "0.1.0"

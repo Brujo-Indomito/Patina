@@ -36,7 +36,7 @@ use windows_core::{Result, HSTRING};
 
 use crate::frame::{FrameFormat, PixelFormat, MAX_FRAME_BYTES};
 
-pub const MAPPING_NAME: &str = "Global\\RustVCam_Frames_v2";
+pub const MAPPING_NAME: &str = "Global\\Patina_Frames_v2";
 pub const MAGIC: u32 = u32::from_le_bytes(*b"RVCM");
 pub const VERSION: u32 = 2;
 pub const SLOT_COUNT: usize = 3;
@@ -363,7 +363,7 @@ mod tests {
     use super::*;
 
     fn test_name() -> String {
-        format!("Local\\RustVCamTest_{}_{:?}", std::process::id(), std::thread::current().id())
+        format!("Local\\PatinaTest_{}_{:?}", std::process::id(), std::thread::current().id())
     }
 
     #[test]
@@ -429,6 +429,6 @@ mod tests {
 
     #[test]
     fn open_fails_without_consumer() {
-        assert!(Producer::open_named("Local\\RustVCamTest_missing").is_err());
+        assert!(Producer::open_named("Local\\PatinaTest_missing").is_err());
     }
 }

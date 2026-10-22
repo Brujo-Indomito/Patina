@@ -8,7 +8,7 @@
   performance counters), and CPU over a sampling window.
 
 .EXAMPLE
-  .\scripts\measure-memory.ps1 -Exe target\release\vcam-app.exe -Arguments '--bench-effects','--seconds','25'
+  .\scripts\measure-memory.ps1 -Exe target\release\patina-cli.exe -Arguments '--bench-effects','--seconds','25'
 #>
 param(
     [Parameter(Mandatory)] [string]$Exe,

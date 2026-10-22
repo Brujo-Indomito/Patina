@@ -19,7 +19,7 @@ use windows_core::HSTRING;
 use crate::publisher::{self, Config, Control};
 use crate::{FRIENDLY_NAME, SOURCE_CLSID};
 
-/// Creates and starts the "Rust VCam" virtual camera, or reopens the one an
+/// Creates and starts the "Patina" virtual camera, or reopens the one an
 /// earlier run left registered. It uses system lifetime, so the device and its
 /// per-camera settings (such as "Allow multiple apps to use camera at the same
 /// time") outlive this process: [`release_virtual_camera`] keeps the device,
@@ -76,22 +76,22 @@ pub fn unregister_virtual_camera() -> windows_core::Result<()> {
 /// Explains the common failure of [`create_virtual_camera`].
 pub fn describe_camera_error(err: &windows_core::Error) -> String {
     if err.code().0 as u32 == 0x80040154 {
-        "The Rust VCam media source is not registered. Run scripts\\install.ps1 as administrator.".into()
+        "The Patina media source is not registered. Run scripts\\install.ps1 as administrator.".into()
     } else {
         format!("Could not create the virtual camera: {err}")
     }
 }
 
-/// Held while this process owns the "Rust VCam" camera; a second copy would
+/// Held while this process owns the "Patina" camera; a second copy would
 /// collide with it.
 pub struct InstanceGuard(HANDLE);
 
 unsafe impl Send for InstanceGuard {}
 
 impl InstanceGuard {
-    /// Returns `None` if another Rust VCam process is already running.
+    /// Returns `None` if another Patina process is already running.
     pub fn acquire() -> Option<Self> {
-        let handle = unsafe { CreateMutexW(None, false, &HSTRING::from("Local\\RustVCam_Instance")) }.ok()?;
+        let handle = unsafe { CreateMutexW(None, false, &HSTRING::from("Local\\Patina_Instance")) }.ok()?;
         if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
             unsafe { let _ = CloseHandle(handle); }
             return None;
@@ -118,7 +118,7 @@ impl Controller {
         let thread = {
             let control = Arc::clone(&control);
             std::thread::Builder::new()
-                .name("vcam-controller".into())
+                .name("patina-controller".into())
                 .spawn(move || controller_thread(&control))
                 .expect("failed to spawn the controller thread")
         };

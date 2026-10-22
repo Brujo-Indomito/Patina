@@ -1,4 +1,4 @@
-# Rust VCam
+# Patina
 
 A lightweight virtual camera for Windows 11, written in Rust. It passes your
 webcam through to a Media Foundation virtual camera that any camera app
@@ -7,14 +7,14 @@ background.
 
 ## How it works
 
-- `crates/vcam-source` builds `rust_vcam_source.dll`, a COM in-process server
+- `crates/patina-source` builds `patina_source.dll`, a COM in-process server
   implementing `IMFActivate`, `IMFMediaSourceEx` and `IMFMediaStream2`. The
   Windows Camera Frame Server service (`svchost -k Camera`, running as
   `LocalService`) loads it and pulls frames from it.
-- `crates/vcam-app` calls `MFCreateVirtualCamera` with the source's CLSID and
+- `crates/patina-app` calls `MFCreateVirtualCamera` with the source's CLSID and
   keeps the camera alive (Windows removes it when the app exits). It captures
   from your webcam and publishes frames to the source.
-- `crates/vcam-shared` holds the frame format, the test pattern and the
+- `crates/patina-shared` holds the frame format, the test pattern and the
   shared-memory transport between the two.
 
 No kernel driver is involved; this needs Windows 11 (build 22000 or later).
@@ -24,7 +24,7 @@ The virtual camera offers NV12 and RGB32 at 1280x720 (default), 1920x1080 and
 
 ### Webcam capture
 
-The webcam is opened only while a client is watching Rust VCam, so its light
+The webcam is opened only while a client is watching Patina, so its light
 is off otherwise. A Media Foundation source reader with advanced video
 processing decodes and scales the webcam's native mode to exactly the format
 the client negotiated; the native mode is chosen as the smallest one at 30 fps
@@ -39,25 +39,29 @@ CPU. Two models are supported and detected automatically:
 
 | Model | File | License | Notes |
 |---|---|---|---|
-| [Robust Video Matting](https://github.com/PeterL1n/RobustVideoMatting) MobileNetV3, fp16 (default on the GPU) | `rvm_mobilenetv3_fp16.onnx`, 7.5 MB | **GPL-3.0** | Made for webcam video; recurrent state across frames keeps it stable and keeps arms and hands. Runs at 960x540 with its low-res pass at 480x270, as RVM recommends for 720p portrait video; ~18 ms per frame on DirectML here. Uses 25% less GPU memory than fp32. |
-| RVM MobileNetV3, fp32 (default on the CPU) | `rvm_mobilenetv3_fp32.onnx`, 15.0 MB | **GPL-3.0** | Same model in full precision; fp16 is emulated and slow on the CPU. |
-| [MODNet](https://github.com/ZHKKKe/MODNet) | `modnet.onnx`, 25.9 MB | Apache-2.0 | Single-image portrait matting; flickers more and drops hands away from the body. Runs at 512x288. |
+| [MediaPipe Selfie Segmentation](https://huggingface.co/onnx-community/mediapipe_selfie_segmentation_landscape), landscape (**default, bundled**) | `selfie_segmenter_landscape.onnx`, 0.5 MB | Apache-2.0 | Google's segmenter for video calls. Runs at 256x144: ~4 ms per frame on DirectML or the CPU, so it keeps up at 30 fps even without a GPU. Single-frame, so the mask is smoothed over time; edges are softer than RVM's. |
+| [Robust Video Matting](https://github.com/PeterL1n/RobustVideoMatting) MobileNetV3, fp16 (optional; used on the GPU) | `rvm_mobilenetv3_fp16.onnx`, 7.5 MB | **GPL-3.0** | Made for webcam video; recurrent state across frames keeps it stable and keeps hair, arms and hands. Runs at 960x540 with its low-res pass at 480x270; ~15 ms per frame on DirectML here. |
+| RVM MobileNetV3, fp32 (optional; used on the CPU) | `rvm_mobilenetv3_fp32.onnx`, 15.0 MB | **GPL-3.0** | Same model in full precision; fp16 is emulated and slow on the CPU. ~107 ms per frame there. |
 
-RVM is GPL-3.0: fine for personal use, but distributing the app with it means
-distributing under the GPL. MODNet has no such condition.
+The installer bundles only MediaPipe, so it carries no GPL code. RVM gives the
+best edges; to use it, download it into the `models` folder (next to
+`patina.exe`, or the repository's `models\` for development) and pick it in
+the settings window. Distributing a build that includes RVM means
+distributing under the GPL.
 
 ```powershell
+Invoke-WebRequest https://huggingface.co/onnx-community/mediapipe_selfie_segmentation_landscape/resolve/main/onnx/model.onnx -OutFile models\selfie_segmenter_landscape.onnx
+# Optional (GPL-3.0):
 Invoke-WebRequest https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_mobilenetv3_fp16.onnx -OutFile models\rvm_mobilenetv3_fp16.onnx
 Invoke-WebRequest https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_mobilenetv3_fp32.onnx -OutFile models\rvm_mobilenetv3_fp32.onnx
-Invoke-WebRequest https://huggingface.co/Xenova/modnet/resolve/main/onnx/model.onnx -OutFile models\modnet.onnx
 ```
 
-SHA-256: RVM fp16 `6a0d5ce6cc17702613be548559879b4521ed424cfe14ddc48d1acaa44d616f64`,
-RVM fp32 `88d4531297118f595bf2fd60f6f566aec2e559393802d1f436c380f0cbbd2828`,
-MODNet `07c308cf0fc7e6e8b2065a12ed7fc07e1de8febb7dc7839d7b7f15dd66584df9` (the
+SHA-256: MediaPipe `7a0adcfdb1715d3b0ff0f61486d8a181c33f4a208343a5abfccbc6540e872d24`,
+RVM fp16 `6a0d5ce6cc17702613be548559879b4521ed424cfe14ddc48d1acaa44d616f64`,
+RVM fp32 `88d4531297118f595bf2fd60f6f566aec2e559393802d1f436c380f0cbbd2828` (the
 app warns about unknown files). The app looks in `models\` next to the
-executable, then in the repository's `models\` folder, and prefers RVM (fp16
-with the GPU, fp32 without), then MODNet; `--model PATH` or the settings
+executable, then in the repository's `models\` folder, and prefers MediaPipe,
+then RVM (fp16 with the GPU, fp32 without); `--model PATH` or the settings
 window picks one explicitly.
 
 ONNX Runtime runs without its CPU memory arena and allocates weights
@@ -71,7 +75,7 @@ submitted while frame N-1 is blended with its own mask, which the GPU computed
 while the camera delivered frame N. Masks therefore match their frames exactly
 (no trail behind movement) at full frame rate, for one frame (33 ms) of added
 latency. On the CPU, where the model can't keep up, the newest mask is used
-instead. The mask is sharpened with a smoothstep (and, for MODNet, smoothed
+instead. The mask is sharpened with a smoothstep (and, for MediaPipe, smoothed
 over time where nothing moves), scaled up, and used to blend the frame over the
 replacement image or a *masked* blur: the person is weighted out before
 blurring at quarter resolution, so their colors don't smear into the
@@ -86,7 +90,7 @@ segmenter then runs on our already-processed video and the two fight.
 
 ### Frame transport
 
-The source creates a `Global\RustVCam_Frames_v2` section when a client opens
+The source creates a `Global\Patina_Frames_v2` section when a client opens
 the camera (only a service can create global objects; users get read/write
 access). It publishes the format the client negotiated plus a heartbeat. The
 app writes frames in that format into one of three slots and publishes the
@@ -98,15 +102,15 @@ isn't publishing, the source shows a dim idle pattern at 30 fps.
 
 ## Install
 
-Run `RustVCam-Setup-<version>.exe` (built as described below). It installs
-to `C:\Program Files\Rust VCam`, registers the camera with Windows (one admin
+Run `Patina-Setup-<version>.exe` (built as described below). It installs
+to `C:\Program Files\Patina`, registers the camera with Windows (one admin
 prompt), and adds a Start menu shortcut, optionally a desktop shortcut and
 "Start with Windows". It bundles the models, `DirectML.dll` and the Visual
 C++ runtime, so nothing else is needed. Uninstall from Settings > Apps; it
 removes the camera device and its registration, the files, the shortcuts and
-the autostart entry (your settings in `%APPDATA%\RustVCam` stay).
+the autostart entry (your settings in `%APPDATA%\Patina` stay).
 
-Start **Rust VCam** from the Start menu; it runs as you, in the tray.
+Start **Patina** from the Start menu; it runs as you, in the tray.
 
 ## Build and run
 
@@ -115,26 +119,26 @@ workload; [Inno Setup 6](https://jrsoftware.org/isinfo.php) for the installer
 (`winget install JRSoftware.InnoSetup`).
 
 ```powershell
-# Build everything and the installer: target\installer\RustVCam-Setup-<version>.exe
+# Build everything and the installer: target\installer\Patina-Setup-<version>.exe
 .\scripts\package.ps1
 ```
 
 `package.ps1` builds release, stages the executables, the camera DLL,
 `DirectML.dll`, the models in `models\` and the VC++ runtime DLLs into
-`target\package`, and compiles `installer\rust-vcam.iss`. Both executables
-carry the app icon and version info (embedded by `crates\vcam-app\build.rs`).
+`target\package`, and compiles `installer\patina.iss`. Both executables
+carry the app icon and version info (embedded by `crates\patina-app\build.rs`).
 
 For development without installing:
 
 ```powershell
 # Once, from an elevated PowerShell: copies the camera DLL to
-# C:\Program Files\RustVCam and registers it
+# C:\Program Files\Patina Dev and registers it
 .\scripts\install.ps1
 
 # As your normal user (not an administrator prompt: an elevated process's
 # camera is invisible to normal apps)
 cargo build --release
-.\target\release\rust-vcam.exe
+.\target\release\patina.exe
 ```
 
 `install.ps1` and the installer register the same camera, so whichever ran
@@ -144,29 +148,29 @@ the installer afterwards to point the camera back at the installed app.
 `uninstall.ps1` only removes the development copy and never unregisters the
 installed app's camera.
 
-Two programs are built from `crates/vcam-app`:
+Two programs are built from `crates/patina-app`:
 
-- **`rust-vcam.exe`**, the settings and tray app. It creates the camera at
+- **`patina.exe`**, the settings and tray app. It creates the camera at
   start and shows a window with a live preview, the settings (webcam,
   background none/blur/image, blur strength, model, GPU, start with Windows)
   and status (client connected, frame rate, segmentation, per-frame timings).
   Changes apply immediately and are saved to
-  `%APPDATA%\RustVCam\settings.toml`. Closing the window keeps the camera
+  `%APPDATA%\Patina\settings.toml`. Closing the window keeps the camera
   running in the tray. After **Quit** the camera stays registered and shows
-  its idle pattern until Rust VCam runs again (see [Multiple apps at
+  its idle pattern until Patina runs again (see [Multiple apps at
   once](#multiple-apps-at-once)). "Start with
   Windows" adds a per-user `HKCU\...\Run` entry that starts it hidden
   (`--minimized`).
-- **`vcam-app.exe`**, the command-line tool described below.
+- **`patina-cli.exe`**, the command-line tool described below.
 
 Only one of them can run at a time (they share the camera); a second copy
 refuses to start.
 
-Open the Windows Camera app (or Teams, Zoom, OBS) and select **Rust VCam**.
+Open the Windows Camera app (or Teams, Zoom, OBS) and select **Patina**.
 
 ### Command-line tool
 
-`vcam-app.exe` runs the camera from a console until you press Enter.
+`patina-cli.exe` runs the camera from a console until you press Enter.
 
 Options:
 
@@ -183,43 +187,47 @@ Options:
 - `--no-publish` keeps the camera up without sending frames (idle pattern).
 - `--seconds N` stops after N seconds instead of waiting for Enter.
 - `--probe [FRAMES]` opens the running camera as a client, reads frames and
-  reports frame rate and content. Set `RUST_VCAM_PROBE_SNAPSHOT=frame.bmp` to
+  reports frame rate and content. Set `PATINA_PROBE_SNAPSHOT=frame.bmp` to
   save the last frame.
-- `--remove-camera` unregisters the Rust VCam device (this also resets its
+- `--remove-camera` unregisters the Patina device (this also resets its
   Windows camera settings). Quit the tray app first.
 
-To remove everything: `vcam-app --remove-camera`, then
+To remove everything: `patina-cli --remove-camera`, then
 `.\scripts\uninstall.ps1` (elevated).
 
 ### Multiple apps at once
 
 Windows lets a second app open a camera that is already in use only when
 "Allow multiple apps to use camera at the same time" is on (Settings >
-Bluetooth & devices > Cameras > Rust VCam > Advanced camera options). It is off
+Bluetooth & devices > Cameras > Patina > Advanced camera options). It is off
 by default for virtual cameras; without it the second app fails with
-`MF_E_HW_MFT_FAILED_START_STREAMING`. Turn it on once. Rust VCam registers its
+`MF_E_HW_MFT_FAILED_START_STREAMING`. Turn it on once. Patina registers its
 camera with system lifetime and doesn't remove it on exit, so the device and
 this setting stay between runs and reboots. Creating it needs no admin rights.
 
 ## Resource use
 
 Measured on the development machine (20 cores) with a 2560x1440 webcam
-scaled to 1280x720 NV12, release build, for `vcam-app` while a client watches:
+scaled to 1280x720 NV12, release build, for `patina-cli` while a client watches:
 
-Effect pipeline, from `vcam-app --bench-effects` (synthetic 720p frames at
+Effect pipeline, from `patina-cli --bench-effects` (synthetic 720p frames at
 30 fps, no camera; includes rendering those frames), measured with
 `scripts\measure-memory.ps1`:
 
 | Mode | CPU (one core) | Working set | Private | GPU memory | Notes |
 |---|---|---|---|---|---|
+| Blur, MediaPipe on the CPU | ~71% | ~45 MB | ~28 MB | 0 | ~5 ms per frame; segmentation 30/s at ~3.5 ms |
+| Blur, MediaPipe on DirectML (default) | ~47% | ~231 MB | ~278 MB | 78 MB | segmentation 30/s at ~4 ms |
 | Blur, RVM fp16 on DirectML | ~70% | ~300 MB | ~430 MB | 164 MB | ~6 ms per frame; segmentation 30/s at ~18 ms |
 | Blur, RVM fp32 on DirectML | ~75% | ~293 MB | ~474 MB | 218 MB | segmentation at ~20 ms |
 | Blur, RVM fp32 on the CPU | ~240% | ~129 MB | ~114 MB | 0 | segmentation ~9/s at ~115 ms; video stays at 30 fps |
 
-About 300 MB of the DirectML rows' private memory is the GPU device itself
-(D3D12, DirectML and the driver), independent of the model.
+About 250-300 MB of the DirectML rows' private memory is the GPU device itself
+(D3D12, DirectML and the driver), independent of the model. MediaPipe is small
+enough that the CPU is the leanest choice: uncheck "Use the GPU" in the
+settings to save that memory.
 
-The settings/tray app (`rust-vcam`) with Blur on and the preview off:
+The settings/tray app (`patina`) with Blur on and the preview off:
 
 | State | Working set | Private | GPU memory |
 |---|---|---|---|
@@ -234,7 +242,7 @@ budget.
 
 ## Debugging
 
-The source logs to `%ProgramData%\RustVCam\source.log` and to
+The source logs to `%ProgramData%\Patina\source.log` and to
 `OutputDebugString` (use Sysinternals DebugView with "Capture Global Win32").
 After rebuilding the DLL, rerun `install.ps1`; it stops the Frame Server so the
 loaded DLL can be replaced. The app and the source must come from the same
@@ -249,10 +257,10 @@ build: the transport is versioned and an old DLL won't talk to a new app.
 
 ## License
 
-Rust VCam's own code is licensed under either of [Apache License, Version 2.0](LICENSE-APACHE)
+Patina's own code is licensed under either of [Apache License, Version 2.0](LICENSE-APACHE)
 or [MIT license](LICENSE-MIT), at your option.
 
 The segmentation models are not part of this repository and keep their own
-licenses: RVM is GPL-3.0 and MODNet is Apache-2.0 (see *Background effects*).
-The installer bundles them, so an installer that includes RVM is distributed
-under the GPL; this repository is its source.
+licenses: MediaPipe Selfie Segmentation is Apache-2.0 and RVM is GPL-3.0 (see
+*Background effects*). The installer bundles only MediaPipe; RVM is an
+optional download.

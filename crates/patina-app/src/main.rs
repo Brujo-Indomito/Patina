@@ -1,27 +1,27 @@
-//! `vcam-app`: the Rust VCam command-line tool. Creates the "Rust VCam"
+//! `patina-cli`: the Patina command-line tool. Creates the "Patina"
 //! virtual camera, feeds it from a webcam, and keeps it alive until Enter is
-//! pressed. (`rust-vcam` is the settings and tray app.)
+//! pressed. (`patina` is the settings and tray app.)
 //!
-//! The media source DLL (`rust_vcam_source.dll`) must already be registered
+//! The media source DLL (`patina_source.dll`) must already be registered
 //! with `scripts/install.ps1`. The camera uses system lifetime: it stays
 //! registered after this process exits (clients then see the idle pattern), so
 //! its Windows settings stick between runs. `--remove-camera` unregisters it.
 //!
 //! Usage:
-//!   vcam-app                   capture from the default webcam until Enter is pressed
-//!   vcam-app --camera NAME     capture from the first webcam whose name contains NAME
-//!   vcam-app --pattern         send the animated test pattern instead of a webcam
-//!   vcam-app --blur [N]        blur the background (strength 1-20, default 8)
-//!   vcam-app --background IMG  replace the background with a JPEG/PNG image
-//!   vcam-app --model PATH      segmentation model (default: the first known model in models\)
-//!   vcam-app --cpu             run segmentation on the CPU instead of DirectML
-//!   vcam-app --show-mask       debug: show the segmentation mask (white = person) instead of an effect
-//!   vcam-app --no-publish      keep the camera up without sending frames (idle pattern)
-//!   vcam-app --seconds N       stop after N seconds instead of waiting for Enter
-//!   vcam-app --list-cameras    list webcams and their native modes
-//!   vcam-app --bench-effects   time the effect pipeline on synthetic 720p frames (no camera needed)
-//!   vcam-app --probe [N]       open the running camera as a client and read N frames (default 90)
-//!   vcam-app --remove-camera   unregister the "Rust VCam" device (and reset its Windows settings)
+//!   patina-cli                   capture from the default webcam until Enter is pressed
+//!   patina-cli --camera NAME     capture from the first webcam whose name contains NAME
+//!   patina-cli --pattern         send the animated test pattern instead of a webcam
+//!   patina-cli --blur [N]        blur the background (strength 1-20, default 8)
+//!   patina-cli --background IMG  replace the background with a JPEG/PNG image
+//!   patina-cli --model PATH      segmentation model (default: the first known model in models\)
+//!   patina-cli --cpu             run segmentation on the CPU instead of DirectML
+//!   patina-cli --show-mask       debug: show the segmentation mask (white = person) instead of an effect
+//!   patina-cli --no-publish      keep the camera up without sending frames (idle pattern)
+//!   patina-cli --seconds N       stop after N seconds instead of waiting for Enter
+//!   patina-cli --list-cameras    list webcams and their native modes
+//!   patina-cli --bench-effects   time the effect pipeline on synthetic 720p frames (no camera needed)
+//!   patina-cli --probe [N]       open the running camera as a client and read N frames (default 90)
+//!   patina-cli --remove-camera   unregister the "Patina" device (and reset its Windows settings)
 
 use std::io::BufRead;
 use std::path::PathBuf;
@@ -33,11 +33,11 @@ use windows::Win32::Media::MediaFoundation::{MFShutdown, MFStartup, MFSTARTUP_FU
 use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_MULTITHREADED};
 use windows_core::Result;
 
-use vcam_app::controller::{self, InstanceGuard};
-use vcam_app::effects::{self, Effect, Effects};
-use vcam_app::publisher::{self, Config, Control, Feed};
-use vcam_app::settings::DEFAULT_BLUR;
-use vcam_app::{capture, devices, probe, segment, FRIENDLY_NAME};
+use patina_app::controller::{self, InstanceGuard};
+use patina_app::effects::{self, Effect, Effects};
+use patina_app::publisher::{self, Config, Control, Feed};
+use patina_app::settings::DEFAULT_BLUR;
+use patina_app::{capture, devices, probe, segment, FRIENDLY_NAME};
 
 struct RunOptions {
     seconds: Option<u64>,
@@ -57,7 +57,7 @@ enum Mode {
     RemoveCamera,
 }
 
-const USAGE: &str = "usage: vcam-app [--camera NAME | --pattern | --no-publish] [--blur [N] | --background IMAGE | --show-mask]\n                [--model PATH] [--cpu] [--seconds N] [--bench-effects]\n       vcam-app --list-cameras\n       vcam-app --probe [FRAMES]\n       vcam-app --remove-camera";
+const USAGE: &str = "usage: patina-cli [--camera NAME | --pattern | --no-publish] [--blur [N] | --background IMAGE | --show-mask]\n                [--model PATH] [--cpu] [--seconds N] [--bench-effects]\n       patina-cli --list-cameras\n       patina-cli --probe [FRAMES]\n       patina-cli --remove-camera";
 
 fn usage_error(message: &str) -> ! {
     eprintln!("{message}\n{USAGE}");
@@ -126,7 +126,7 @@ fn resolve_model(options: &RunOptions) -> Option<PathBuf> {
 }
 
 fn main() {
-    vcam_app::init_thread_pool();
+    patina_app::init_thread_pool();
     if let Err(err) = run(parse_args()) {
         eprintln!("error: {err} ({:#010x})", err.code().0);
         std::process::exit(1);
@@ -176,7 +176,7 @@ fn list_cameras() -> Result<()> {
 
 fn run_camera(options: RunOptions) -> Result<()> {
     let Some(_guard) = InstanceGuard::acquire() else {
-        eprintln!("Rust VCam is already running (check the system tray). Quit it first.");
+        eprintln!("Patina is already running (check the system tray). Quit it first.");
         std::process::exit(2);
     };
     let model = resolve_model(&options);
@@ -219,13 +219,13 @@ fn run_camera(options: RunOptions) -> Result<()> {
         let _ = thread.join();
     }
     controller::release_virtual_camera(&camera);
-    println!("Stopped. \"{FRIENDLY_NAME}\" stays installed (idle pattern); vcam-app --remove-camera removes it.");
+    println!("Stopped. \"{FRIENDLY_NAME}\" stays installed (idle pattern); patina-cli --remove-camera removes it.");
     Ok(())
 }
 
 fn remove_camera() -> Result<()> {
     let Some(_guard) = InstanceGuard::acquire() else {
-        eprintln!("Rust VCam is running (check the system tray). Quit it first.");
+        eprintln!("Patina is running (check the system tray). Quit it first.");
         std::process::exit(2);
     };
     controller::unregister_virtual_camera().inspect_err(|err| eprintln!("{}", controller::describe_camera_error(err)))?;
@@ -236,8 +236,8 @@ fn remove_camera() -> Result<()> {
 /// Runs the effect pipeline on a synthetic, moving 1280x720 NV12 test pattern
 /// at camera pace (30 fps) and prints per-stage timings every 5 seconds.
 fn bench_effects(mut options: RunOptions) -> Result<()> {
-    use vcam_shared::pattern::{Style, TestPattern};
-    use vcam_shared::{FrameFormat, PixelFormat};
+    use patina_shared::pattern::{Style, TestPattern};
+    use patina_shared::{FrameFormat, PixelFormat};
 
     let effect = options.effect.get_or_insert(Effect::Blur { strength: DEFAULT_BLUR }).clone();
     options.feed = Some(Feed::Camera(None));

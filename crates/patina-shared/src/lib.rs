@@ -1,4 +1,4 @@
-//! Code shared by the Rust VCam app and its Frame Server media source.
+//! Code shared by the Patina app and its Frame Server media source.
 
 pub mod frame;
 pub mod pattern;

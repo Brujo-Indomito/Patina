@@ -1,14 +1,16 @@
 ﻿//! Person segmentation on ONNX Runtime.
 //!
-//! Two model families are supported and told apart by their inputs:
+//! Two model families are supported and told apart by their inputs, both
+//! taking the frame as RGB in [0, 1]:
 //!
-//! - **RVM** (Robust Video Matting, MobileNetV3; GPL-3.0): built for webcam
-//!   video. It takes the frame as RGB in [0, 1] plus four recurrent state
-//!   tensors carried over from the previous frame and a downsample ratio, and
-//!   returns an alpha matte (`pha`) and the updated states. The recurrence is
-//!   what makes it temporally stable and keeps arms and hands.
-//! - **MODNet** (Apache-2.0): a single-image portrait matting model taking RGB
-//!   in [-1, 1] and returning the matte.
+//! - **MediaPipe Selfie Segmentation** (landscape, 256x144; Apache-2.0), the
+//!   default: Google's video-call segmenter. Tiny and fast; a single-frame
+//!   model returning a person confidence (`alphas`).
+//! - **RVM** (Robust Video Matting, MobileNetV3; GPL-3.0), optional: built for
+//!   webcam video. It also takes four recurrent state tensors carried over
+//!   from the previous frame and a downsample ratio, and returns an alpha
+//!   matte (`pha`) and the updated states. The recurrence is what makes it
+//!   temporally stable and keeps arms and hands.
 //!
 //! Inference runs on its own thread. The publisher hands over each frame and
 //! either waits briefly for that frame's matte (GPU) or uses the newest one
@@ -34,25 +36,18 @@ pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ModelKind {
+    MediaPipe,
     Rvm,
-    Modnet,
 }
 
 impl ModelKind {
     /// Model input (and matte) size; 16:9 like the camera's output formats.
     pub fn input_size(self) -> (usize, usize) {
         match self {
+            // The landscape model's fixed input.
+            ModelKind::MediaPipe => (256, 144),
             // RVM refines its low-resolution pass (480x270) back up to the input size.
             ModelKind::Rvm => (960, 540),
-            // MODNet needs multiples of 32.
-            ModelKind::Modnet => (512, 288),
-        }
-    }
-
-    fn normalize(self, value: u8) -> f32 {
-        match self {
-            ModelKind::Rvm => value as f32 / 255.0,
-            ModelKind::Modnet => value as f32 / 127.5 - 1.0,
         }
     }
 }
@@ -60,8 +55,8 @@ impl ModelKind {
 impl std::fmt::Display for ModelKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
+            ModelKind::MediaPipe => "MediaPipe",
             ModelKind::Rvm => "RVM",
-            ModelKind::Modnet => "MODNet",
         })
     }
 }
@@ -70,16 +65,17 @@ impl std::fmt::Display for ModelKind {
 /// documented recommendation for 720p portrait video ("between 256 and 512").
 const RVM_DOWNSAMPLE_RATIO: f32 = 0.5;
 
-/// Known model files with their SHA-256. RVM files come from
-/// github.com/PeterL1n/RobustVideoMatting release v1.0.0 (GPL-3.0); MODNet is
-/// onnx/model.onnx from huggingface.co/Xenova/modnet (Apache-2.0).
+/// Known model files with their SHA-256. MediaPipe is onnx/model.onnx from
+/// huggingface.co/onnx-community/mediapipe_selfie_segmentation_landscape
+/// (Apache-2.0); RVM files come from github.com/PeterL1n/RobustVideoMatting
+/// release v1.0.0 (GPL-3.0).
+pub const MEDIAPIPE: &str = "selfie_segmenter_landscape.onnx";
 pub const RVM_FP16: &str = "rvm_mobilenetv3_fp16.onnx";
 pub const RVM_FP32: &str = "rvm_mobilenetv3_fp32.onnx";
-pub const MODNET: &str = "modnet.onnx";
 pub const KNOWN_MODELS: [(&str, &str); 3] = [
+    (MEDIAPIPE, "7a0adcfdb1715d3b0ff0f61486d8a181c33f4a208343a5abfccbc6540e872d24"),
     (RVM_FP16, "6a0d5ce6cc17702613be548559879b4521ed424cfe14ddc48d1acaa44d616f64"),
     (RVM_FP32, "88d4531297118f595bf2fd60f6f566aec2e559393802d1f436c380f0cbbd2828"),
-    (MODNET, "07c308cf0fc7e6e8b2065a12ed7fc07e1de8febb7dc7839d7b7f15dd66584df9"),
 ];
 
 /// Finds RVM, preferring the fp16 export on the GPU (half the memory; GPUs
@@ -89,10 +85,11 @@ pub fn rvm_path(gpu: bool) -> Option<PathBuf> {
     order.into_iter().find_map(find_model)
 }
 
-/// Finds a known model, preferring RVM: in `models\` next to the executable,
-/// then in the workspace's `models\` directory (for `cargo run`).
+/// Finds a known model, preferring MediaPipe (the bundled default) over RVM:
+/// in `models\` next to the executable, then in the workspace's `models\`
+/// directory (for `cargo run`).
 pub fn default_model_path(gpu: bool) -> Option<PathBuf> {
-    rvm_path(gpu).or_else(|| find_model(MODNET))
+    find_model(MEDIAPIPE).or_else(|| rvm_path(gpu))
 }
 
 /// Finds a model file by name in the same places as [`default_model_path`].
@@ -145,13 +142,13 @@ impl Model {
         }
 
         let (session, backend) = Self::create_session(environment()?, &bytes, allow_gpu)?;
-        let kind = if session.inputs().iter().any(|input| input.name() == "r1i") { ModelKind::Rvm } else { ModelKind::Modnet };
+        let kind = if session.inputs().iter().any(|input| input.name() == "r1i") { ModelKind::Rvm } else { ModelKind::MediaPipe };
         let half = session
             .inputs()
             .first()
             .is_some_and(|input| matches!(input.dtype(), ValueType::Tensor { ty: TensorElementType::Float16, .. }));
-        if half && kind == ModelKind::Modnet {
-            return Err("fp16 MODNet models are not supported".into());
+        if half && kind == ModelKind::MediaPipe {
+            return Err("fp16 MediaPipe models are not supported; use the fp32 model.onnx".into());
         }
         if half && backend == Backend::Cpu {
             println!("Note: running an fp16 model on the CPU is slow; the fp32 model is faster there.");
@@ -165,11 +162,11 @@ impl Model {
         matches!(self.states, RvmStates::F16(_))
     }
 
-    /// "RVM fp16", "RVM fp32" or "MODNet".
+    /// "MediaPipe", "RVM fp16" or "RVM fp32".
     fn label(&self) -> String {
         match self.kind {
+            ModelKind::MediaPipe => ModelKind::MediaPipe.to_string(),
             ModelKind::Rvm => format!("RVM {}", if self.is_half() { "fp16" } else { "fp32" }),
-            ModelKind::Modnet => ModelKind::Modnet.to_string(),
         }
     }
 
@@ -208,7 +205,7 @@ impl Model {
         let (width, height) = self.kind.input_size();
         let src = TensorRef::from_array_view(([1usize, 3, height, width], input)).map_err(text)?;
         match self.kind {
-            ModelKind::Modnet => {
+            ModelKind::MediaPipe => {
                 let outputs = self.session.run(ort::inputs![src]).map_err(text)?;
                 let (_, data) = outputs[0].try_extract_tensor::<f32>().map_err(text)?;
                 copy_matte(data, width * height, matte)
@@ -287,7 +284,7 @@ fn environment() -> Result<&'static ort::environment::Environment, Error> {
     if let Some(environment) = ENVIRONMENT.get() {
         return Ok(environment);
     }
-    let environment = ort::init().with_name("rust-vcam").build().map_err(text)?;
+    let environment = ort::init().with_name("patina").build().map_err(text)?;
     Ok(ENVIRONMENT.get_or_init(|| environment))
 }
 
@@ -320,8 +317,8 @@ fn text(err: impl std::fmt::Display) -> Error {
     err.to_string().into()
 }
 
-/// Converts an NV12 frame into `kind`'s normalized RGB planes at its input
-/// size (nearest-neighbor sampling; aliasing doesn't matter for matting).
+/// Converts an NV12 frame into RGB planes in [0, 1] at `kind`'s input size
+/// (nearest-neighbor sampling; aliasing doesn't matter for matting).
 pub fn nv12_to_input(frame: &[u8], width: usize, height: usize, kind: ModelKind, input: &mut Vec<f32>) {
     let (mw, mh) = kind.input_size();
     let pixels = mw * mh;
@@ -342,9 +339,9 @@ pub fn nv12_to_input(frame: &[u8], width: usize, height: usize, kind: ModelKind,
             for mx in 0..mw {
                 let x = (mx * width + width / 2) / mw;
                 let [r, g, b] = yuv_to_rgb(luma_row[x], chroma_row[x & !1], chroma_row[x | 1]);
-                r_row[mx] = kind.normalize(r);
-                g_row[mx] = kind.normalize(g);
-                b_row[mx] = kind.normalize(b);
+                r_row[mx] = r as f32 / 255.0;
+                g_row[mx] = g as f32 / 255.0;
+                b_row[mx] = b as f32 / 255.0;
             }
         });
 }
@@ -470,7 +467,7 @@ impl Segmenter {
         self.slots().loaded.map(|(_, kind)| kind)
     }
 
-    /// "RVM fp16", "RVM fp32" or "MODNet", once the model has loaded.
+    /// "MediaPipe", "RVM fp16" or "RVM fp32", once the model has loaded.
     pub fn label(&self) -> Option<String> {
         self.slots().label.clone()
     }
@@ -551,20 +548,44 @@ mod tests {
     use super::*;
 
     #[test]
-    fn gray_normalizes_per_model() {
+    fn gray_converts_at_each_model_size() {
         // Mid-gray YUV (126, 128, 128) is RGB ~127.
         let (w, h) = (64, 36);
         let mut frame = vec![126u8; w * h];
         frame.extend(std::iter::repeat_n(128u8, w * h / 2));
 
         let mut input = Vec::new();
-        nv12_to_input(&frame, w, h, ModelKind::Modnet, &mut input);
-        assert_eq!(input.len(), 3 * 512 * 288);
-        assert!(input.iter().all(|v| v.abs() < 0.02), "{:?}", &input[..4]);
+        for (kind, pixels) in [(ModelKind::MediaPipe, 256 * 144), (ModelKind::Rvm, 960 * 540)] {
+            nv12_to_input(&frame, w, h, kind, &mut input);
+            assert_eq!(input.len(), 3 * pixels);
+            assert!(input.iter().all(|v| (v - 0.5).abs() < 0.01), "{:?}", &input[..4]);
+        }
+    }
 
-        nv12_to_input(&frame, w, h, ModelKind::Rvm, &mut input);
-        assert_eq!(input.len(), 3 * 960 * 540);
-        assert!(input.iter().all(|v| (v - 0.5).abs() < 0.01), "{:?}", &input[..4]);
+    /// Runs the real MediaPipe model when it has been downloaded (skipped
+    /// otherwise): checks detection, matte size and range.
+    #[test]
+    fn mediapipe_runs_when_available() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../models").join(MEDIAPIPE);
+        if !path.is_file() {
+            eprintln!("skipping: {} not present", path.display());
+            return;
+        }
+        let mut model = Model::load(&path, false).unwrap();
+        assert_eq!(model.kind, ModelKind::MediaPipe);
+        let (w, h) = ModelKind::MediaPipe.input_size();
+        let mut matte = Vec::new();
+        model.infer(&vec![0.5f32; 3 * w * h], &mut matte).unwrap();
+        assert_eq!(matte.len(), w * h);
+        assert!(matte.iter().all(|a| (0.0..=1.0).contains(a)));
+    }
+
+    #[test]
+    fn mediapipe_is_the_default_when_present() {
+        if let Some(mediapipe) = find_model(MEDIAPIPE) {
+            assert_eq!(default_model_path(true), Some(mediapipe.clone()));
+            assert_eq!(default_model_path(false), Some(mediapipe));
+        }
     }
 
     #[test]

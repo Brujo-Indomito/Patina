@@ -2112,6 +2112,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "patina-app"
+version = "0.1.0"
+dependencies = [
+ "eframe",
+ "embed-resource",
+ "half",
+ "image",
+ "ort",
+ "patina-shared",
+ "rayon",
+ "rfd",
+ "serde",
+ "sha2",
+ "toml 1.1.8+spec-1.1.0",
+ "tray-icon",
+ "windows",
+ "windows-core",
+]
+
+[[package]]
+name = "patina-shared"
+version = "0.1.0"
+dependencies = [
+ "windows",
+ "windows-core",
+]
+
+[[package]]
+name = "patina-source"
+version = "0.1.0"
+dependencies = [
+ "patina-shared",
+ "windows",
+ "windows-core",
+]
+
+[[package]]
 name = "pem-rfc7468"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3024,43 +3061,6 @@ name = "uuid"
 version = "1.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7cc1186384beb7dd8eedea376413fd654937285ea6c9cfbb928dc3043ea4b606"
-
-[[package]]
-name = "vcam-app"
-version = "0.1.0"
-dependencies = [
- "eframe",
- "embed-resource",
- "half",
- "image",
- "ort",
- "rayon",
- "rfd",
- "serde",
- "sha2",
- "toml 1.1.8+spec-1.1.0",
- "tray-icon",
- "vcam-shared",
- "windows",
- "windows-core",
-]
-
-[[package]]
-name = "vcam-shared"
-version = "0.1.0"
-dependencies = [
- "windows",
- "windows-core",
-]
-
-[[package]]
-name = "vcam-source"
-version = "0.1.0"
-dependencies = [
- "vcam-shared",
- "windows",
- "windows-core",
-]
 
 [[package]]
 name = "vcpkg"

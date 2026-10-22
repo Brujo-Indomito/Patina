@@ -1,14 +1,18 @@
 [package]
-name = "vcam-app"
+name = "patina-app"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Rust VCam: the settings and tray app (rust-vcam) and the command-line tool (vcam-app)"
+description = "Patina: the settings and tray app (patina) and the command-line tool (patina-cli)"
+
+[[bin]]
+name = "patina-cli"
+path = "src/main.rs"
 
 [dependencies]
 windows.workspace = true
 windows-core.workspace = true
-vcam-shared = { path = "../vcam-shared" }
+patina-shared = { path = "../patina-shared" }
 ort = { version = "=2.0.0-rc.14", features = ["directml", "half"] }
 half = "2.1"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }

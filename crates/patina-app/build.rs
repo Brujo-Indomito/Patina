@@ -1,5 +1,5 @@
 //! Embeds the app icon and version information in the executables, so
-//! Explorer, shortcuts and the taskbar show the Rust VCam icon.
+//! Explorer, shortcuts and the taskbar show the Patina icon.
 //!
 //! The icon is drawn by the same code the app uses at runtime (src/icon.rs)
 //! and written as a multi-size .ico.
@@ -20,7 +20,7 @@ fn main() {
     }
 
     let out = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
-    let ico = out.join("rust-vcam.ico");
+    let ico = out.join("patina.ico");
     std::fs::write(&ico, ico_bytes()).expect("write icon");
 
     let rc = out.join("app.rc");
@@ -88,8 +88,8 @@ BEGIN
   BEGIN
     BLOCK "040904B0"
     BEGIN
-      VALUE "FileDescription", "Rust VCam"
-      VALUE "ProductName", "Rust VCam"
+      VALUE "FileDescription", "Patina"
+      VALUE "ProductName", "Patina"
       VALUE "FileVersion", "{version}"
       VALUE "ProductVersion", "{version}"
       VALUE "LegalCopyright", "MIT OR Apache-2.0"

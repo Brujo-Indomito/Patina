@@ -11,9 +11,9 @@ use windows_core::{implement, IUnknown, Interface, Ref, Result, GUID, HRESULT};
 
 use crate::attributes::delegate_attributes;
 use crate::log::{log, trace};
-use vcam_shared::pattern::{Style, TestPattern};
-use vcam_shared::shm::Consumer;
-use vcam_shared::{FrameFormat, PixelFormat};
+use patina_shared::pattern::{Style, TestPattern};
+use patina_shared::shm::Consumer;
+use patina_shared::{FrameFormat, PixelFormat};
 
 const FRAME_RATE: u32 = 30;
 /// Frame duration in 100 ns units.

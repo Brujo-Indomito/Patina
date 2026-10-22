@@ -1,24 +1,24 @@
 #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-  Unregisters the Rust VCam media source and removes its installed files.
+  Unregisters the Patina media source and removes its installed files.
 
   This removes the development install made by install.ps1. If the installed
-  app (C:\Program Files\Rust VCam) owns the camera registration, it is left
+  app (C:\Program Files\Patina) owns the camera registration, it is left
   alone, as is the shared log folder.
 
 .PARAMETER KeepLogs
-  Leave %ProgramData%\RustVCam (source.log) in place.
+  Leave %ProgramData%\Patina (source.log) in place.
 #>
 param([switch]$KeepLogs)
 
 $ErrorActionPreference = 'Stop'
-$installDir = Join-Path $env:ProgramFiles 'RustVCam'
-$logDir = Join-Path $env:ProgramData 'RustVCam'
-$target = Join-Path $installDir 'rust_vcam_source.dll'
+$installDir = Join-Path $env:ProgramFiles 'Patina Dev'
+$logDir = Join-Path $env:ProgramData 'Patina'
+$target = Join-Path $installDir 'patina_source.dll'
 $clsidKey = 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Classes\CLSID\{E3C40D88-220A-4FD1-94D8-BC3F22833AFA}\InprocServer32'
 $registered = (Get-ItemProperty -Path $clsidKey -ErrorAction SilentlyContinue).'(default)'
-$installedApp = Test-Path (Join-Path $env:ProgramFiles 'Rust VCam\rust-vcam.exe')
+$installedApp = Test-Path (Join-Path $env:ProgramFiles 'Patina\patina.exe')
 
 foreach ($service in 'FrameServerMonitor', 'FrameServer') {
     Stop-Service -Name $service -Force -ErrorAction SilentlyContinue

@@ -1,5 +1,5 @@
-//! Rust VCam application code, shared by the `rust-vcam` settings/tray app
-//! and the `vcam-app` command-line tool.
+//! Patina application code, shared by the `patina` settings/tray app
+//! and the `patina-cli` command-line tool.
 
 pub mod capture;
 pub mod controller;
@@ -13,9 +13,9 @@ pub mod segment;
 pub mod settings;
 pub mod ui;
 
-/// Must match `CLSID_RUST_VCAM` in the vcam-source crate.
+/// Must match `CLSID_PATINA` in the patina-source crate.
 pub const SOURCE_CLSID: &str = "{E3C40D88-220A-4FD1-94D8-BC3F22833AFA}";
-pub const FRIENDLY_NAME: &str = "Rust VCam";
+pub const FRIENDLY_NAME: &str = "Patina";
 
 /// Worker threads for the row-parallel effect code. Measured on a 20-core
 /// machine: 4 threads composite a 720p frame in ~5 ms at about half the CPU of

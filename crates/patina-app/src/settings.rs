@@ -1,5 +1,5 @@
 //! User settings for the settings/tray app, stored in
-//! `%APPDATA%\RustVCam\settings.toml`, plus the "Start with Windows" entry.
+//! `%APPDATA%\Patina\settings.toml`, plus the "Start with Windows" entry.
 
 use std::path::{Path, PathBuf};
 
@@ -17,7 +17,7 @@ use crate::segment;
 
 pub const DEFAULT_BLUR: u32 = 8;
 const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
-const RUN_VALUE: &str = "RustVCam";
+const RUN_VALUE: &str = "Patina";
 /// Command-line flag the autostart entry passes to start hidden in the tray.
 pub const MINIMIZED_FLAG: &str = "--minimized";
 
@@ -32,21 +32,23 @@ pub enum EffectKind {
 /// Which segmentation model to use.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ModelChoice {
-    /// RVM if present, else MODNet.
+    /// MediaPipe if present, else RVM.
     #[default]
     Automatic,
+    /// Settings saved before MODNet was dropped load as MediaPipe.
+    #[serde(alias = "Modnet")]
+    MediaPipe,
     Rvm,
-    Modnet,
 }
 
 impl ModelChoice {
-    pub const ALL: [ModelChoice; 3] = [ModelChoice::Automatic, ModelChoice::Rvm, ModelChoice::Modnet];
+    pub const ALL: [ModelChoice; 3] = [ModelChoice::Automatic, ModelChoice::MediaPipe, ModelChoice::Rvm];
 
     pub fn label(self) -> &'static str {
         match self {
             ModelChoice::Automatic => "Automatic",
-            ModelChoice::Rvm => "RVM (video, GPL-3.0)",
-            ModelChoice::Modnet => "MODNet (Apache-2.0)",
+            ModelChoice::MediaPipe => "MediaPipe (fast, Apache-2.0)",
+            ModelChoice::Rvm => "RVM (best edges, GPL-3.0)",
         }
     }
 
@@ -54,8 +56,8 @@ impl ModelChoice {
     pub fn path(self, gpu: bool) -> Option<PathBuf> {
         match self {
             ModelChoice::Automatic => segment::default_model_path(gpu),
+            ModelChoice::MediaPipe => segment::find_model(segment::MEDIAPIPE),
             ModelChoice::Rvm => segment::rvm_path(gpu),
-            ModelChoice::Modnet => segment::find_model(segment::MODNET),
         }
     }
 }
@@ -92,7 +94,7 @@ impl Default for Settings {
 impl Settings {
     pub fn path() -> PathBuf {
         let base = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
-        base.join("RustVCam").join("settings.toml")
+        base.join("Patina").join("settings.toml")
     }
 
     /// Loads saved settings, falling back to defaults if there are none or
@@ -179,13 +181,19 @@ mod tests {
             effect: EffectKind::Background,
             blur_strength: 12,
             background_image: Some(PathBuf::from("C:\\pictures\\garden.jpg")),
-            model: ModelChoice::Modnet,
+            model: ModelChoice::Rvm,
             use_gpu: false,
             show_preview: false,
             start_with_windows: true,
         };
         let text = toml::to_string_pretty(&settings).unwrap();
         assert_eq!(toml::from_str::<Settings>(&text).unwrap(), settings);
+    }
+
+    #[test]
+    fn old_modnet_choice_loads_as_mediapipe() {
+        let settings: Settings = toml::from_str("model = \"Modnet\"").unwrap();
+        assert_eq!(settings.model, ModelChoice::MediaPipe);
     }
 
     #[test]

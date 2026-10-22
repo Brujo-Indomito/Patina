@@ -3,8 +3,9 @@
 //! pressed. (`rust-vcam` is the settings and tray app.)
 //!
 //! The media source DLL (`rust_vcam_source.dll`) must already be registered
-//! with `scripts/install.ps1`. The camera uses session lifetime, so Windows
-//! removes it when this process exits.
+//! with `scripts/install.ps1`. The camera uses system lifetime: it stays
+//! registered after this process exits (clients then see the idle pattern), so
+//! its Windows settings stick between runs. `--remove-camera` unregisters it.
 //!
 //! Usage:
 //!   vcam-app                   capture from the default webcam until Enter is pressed
@@ -20,6 +21,7 @@
 //!   vcam-app --list-cameras    list webcams and their native modes
 //!   vcam-app --bench-effects   time the effect pipeline on synthetic 720p frames (no camera needed)
 //!   vcam-app --probe [N]       open the running camera as a client and read N frames (default 90)
+//!   vcam-app --remove-camera   unregister the "Rust VCam" device (and reset its Windows settings)
 
 use std::io::BufRead;
 use std::path::PathBuf;
@@ -52,9 +54,10 @@ enum Mode {
     Run(RunOptions),
     ListCameras,
     Probe { frames: u32 },
+    RemoveCamera,
 }
 
-const USAGE: &str = "usage: vcam-app [--camera NAME | --pattern | --no-publish] [--blur [N] | --background IMAGE | --show-mask]\n                [--model PATH] [--cpu] [--seconds N] [--bench-effects]\n       vcam-app --list-cameras\n       vcam-app --probe [FRAMES]";
+const USAGE: &str = "usage: vcam-app [--camera NAME | --pattern | --no-publish] [--blur [N] | --background IMAGE | --show-mask]\n                [--model PATH] [--cpu] [--seconds N] [--bench-effects]\n       vcam-app --list-cameras\n       vcam-app --probe [FRAMES]\n       vcam-app --remove-camera";
 
 fn usage_error(message: &str) -> ! {
     eprintln!("{message}\n{USAGE}");
@@ -69,6 +72,7 @@ fn parse_args() -> Mode {
         match arg.as_str() {
             "--probe" => return Mode::Probe { frames: args.next().and_then(|v| v.parse().ok()).unwrap_or(90) },
             "--list-cameras" => return Mode::ListCameras,
+            "--remove-camera" => return Mode::RemoveCamera,
             "--seconds" => {
                 options.seconds =
                     Some(args.next().and_then(|v| v.parse().ok()).unwrap_or_else(|| usage_error("--seconds needs a number")))
@@ -139,6 +143,7 @@ fn run(mode: Mode) -> Result<()> {
         Mode::Run(options) if options.bench => bench_effects(options),
         Mode::Run(options) => run_camera(options),
         Mode::ListCameras => list_cameras(),
+        Mode::RemoveCamera => remove_camera(),
         Mode::Probe { frames } => probe::probe(FRIENDLY_NAME, frames),
     };
 
@@ -213,8 +218,18 @@ fn run_camera(options: RunOptions) -> Result<()> {
         control.stop.store(true, Ordering::Relaxed);
         let _ = thread.join();
     }
-    controller::remove_virtual_camera(&camera);
-    println!("Stopped.");
+    controller::release_virtual_camera(&camera);
+    println!("Stopped. \"{FRIENDLY_NAME}\" stays installed (idle pattern); vcam-app --remove-camera removes it.");
+    Ok(())
+}
+
+fn remove_camera() -> Result<()> {
+    let Some(_guard) = InstanceGuard::acquire() else {
+        eprintln!("Rust VCam is running (check the system tray). Quit it first.");
+        std::process::exit(2);
+    };
+    controller::unregister_virtual_camera().inspect_err(|err| eprintln!("{}", controller::describe_camera_error(err)))?;
+    println!("Removed \"{FRIENDLY_NAME}\".");
     Ok(())
 }
 

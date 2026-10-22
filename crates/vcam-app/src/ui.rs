@@ -1,7 +1,8 @@
 //! The settings window and tray icon.
 //!
 //! Closing the window hides it to the tray; the virtual camera keeps running.
-//! The tray menu reopens the window or quits (which removes the camera).
+//! The tray menu reopens the window or quits (the camera stays registered and
+//! shows its idle pattern until the app runs again).
 //! Every change is saved immediately and applied to the running camera.
 
 use std::sync::mpsc::{channel, Receiver};
@@ -122,7 +123,7 @@ impl App {
 
 impl Drop for App {
     fn drop(&mut self) {
-        // Stop the publisher and remove the virtual camera before Media Foundation shuts down.
+        // Stop the publisher and release the virtual camera before Media Foundation shuts down.
         self.controller = None;
         if self.mf_started {
             unsafe { let _ = MFShutdown(); }
@@ -348,7 +349,7 @@ fn list_cameras() -> Vec<String> {
 fn create_tray(ctx: &egui::Context, sender: std::sync::mpsc::Sender<TrayAction>) -> Option<TrayIcon> {
     let menu = Menu::new();
     let open = MenuItem::with_id("open", format!("Open {FRIENDLY_NAME}"), true, None);
-    let quit = MenuItem::with_id("quit", "Quit (removes the camera)", true, None);
+    let quit = MenuItem::with_id("quit", "Quit", true, None);
     menu.append(&open).ok()?;
     menu.append(&PredefinedMenuItem::separator()).ok()?;
     menu.append(&quit).ok()?;

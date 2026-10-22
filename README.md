@@ -103,8 +103,8 @@ to `C:\Program Files\Rust VCam`, registers the camera with Windows (one admin
 prompt), and adds a Start menu shortcut, optionally a desktop shortcut and
 "Start with Windows". It bundles the models, `DirectML.dll` and the Visual
 C++ runtime, so nothing else is needed. Uninstall from Settings > Apps; it
-removes the camera registration, the files, the shortcuts and the autostart
-entry (your settings in `%APPDATA%\RustVCam` stay).
+removes the camera device and its registration, the files, the shortcuts and
+the autostart entry (your settings in `%APPDATA%\RustVCam` stay).
 
 Start **Rust VCam** from the Start menu; it runs as you, in the tray.
 
@@ -152,7 +152,9 @@ Two programs are built from `crates/vcam-app`:
   and status (client connected, frame rate, segmentation, per-frame timings).
   Changes apply immediately and are saved to
   `%APPDATA%\RustVCam\settings.toml`. Closing the window keeps the camera
-  running in the tray; the tray menu's **Quit** removes it. "Start with
+  running in the tray. After **Quit** the camera stays registered and shows
+  its idle pattern until Rust VCam runs again (see [Multiple apps at
+  once](#multiple-apps-at-once)). "Start with
   Windows" adds a per-user `HKCU\...\Run` entry that starts it hidden
   (`--minimized`).
 - **`vcam-app.exe`**, the command-line tool described below.
@@ -183,8 +185,21 @@ Options:
 - `--probe [FRAMES]` opens the running camera as a client, reads frames and
   reports frame rate and content. Set `RUST_VCAM_PROBE_SNAPSHOT=frame.bmp` to
   save the last frame.
+- `--remove-camera` unregisters the Rust VCam device (this also resets its
+  Windows camera settings). Quit the tray app first.
 
-To remove everything: `.\scripts\uninstall.ps1` (elevated).
+To remove everything: `vcam-app --remove-camera`, then
+`.\scripts\uninstall.ps1` (elevated).
+
+### Multiple apps at once
+
+Windows lets a second app open a camera that is already in use only when
+"Allow multiple apps to use camera at the same time" is on (Settings >
+Bluetooth & devices > Cameras > Rust VCam > Advanced camera options). It is off
+by default for virtual cameras; without it the second app fails with
+`MF_E_HW_MFT_FAILED_START_STREAMING`. Turn it on once. Rust VCam registers its
+camera with system lifetime and doesn't remove it on exit, so the device and
+this setting stay between runs and reboots. Creating it needs no admin rights.
 
 ## Resource use
 
@@ -227,19 +242,9 @@ build: the transport is versioned and an old DLL won't talk to a new app.
 
 ## Next steps
 
-1. Keep multi-app mode on across runs. Windows lets a second app open a
-   camera that is already in use only when "Allow multiple apps to use camera
-   at the same time" is on (Settings > Bluetooth & devices > Cameras >
-   Rust VCam > Advanced camera options). Without it, the second client fails
-   with `MF_E_HW_MFT_FAILED_START_STREAMING` before the Frame Server calls the
-   source. Other virtual cameras behave the same way. With the setting on,
-   two `--probe` clients both stream at 30 fps. But the app removes the camera
-   when it exits, so the setting resets on every run. Look into a
-   longer-lived registration (`MFVirtualCameraLifetime_System`) or another
-   way to keep the device and its setting between runs.
-2. Consider GPU compositing (wgpu or D3D11) to cut the CPU cost of effects
+1. Consider GPU compositing (wgpu or D3D11) to cut the CPU cost of effects
    further.
-3. Sign the installer and executables, so Windows SmartScreen doesn't warn
+2. Sign the installer and executables, so Windows SmartScreen doesn't warn
    about an unknown publisher.
 
 ## License

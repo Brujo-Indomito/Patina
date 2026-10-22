@@ -10,7 +10,7 @@ use std::thread::JoinHandle;
 use windows::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, HANDLE};
 use windows::Win32::Media::MediaFoundation::{
     IMFAsyncCallback, IMFVirtualCamera, MFCreateVirtualCamera, MFShutdown, MFStartup, MFVirtualCameraAccess_CurrentUser,
-    MFVirtualCameraLifetime_Session, MFVirtualCameraType_SoftwareCameraSource, MFSTARTUP_FULL, MF_VERSION,
+    MFVirtualCameraLifetime_System, MFVirtualCameraType_SoftwareCameraSource, MFSTARTUP_FULL, MF_VERSION,
 };
 use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_MULTITHREADED};
 use windows::Win32::System::Threading::CreateMutexW;
@@ -19,13 +19,16 @@ use windows_core::HSTRING;
 use crate::publisher::{self, Config, Control};
 use crate::{FRIENDLY_NAME, SOURCE_CLSID};
 
-/// Creates and starts the "Rust VCam" virtual camera. It lives as long as the
-/// returned object (session lifetime): call [`remove_virtual_camera`] or exit.
+/// Creates and starts the "Rust VCam" virtual camera, or reopens the one an
+/// earlier run left registered. It uses system lifetime, so the device and its
+/// per-camera settings (such as "Allow multiple apps to use camera at the same
+/// time") outlive this process: [`release_virtual_camera`] keeps the device,
+/// [`remove_virtual_camera`] unregisters it.
 pub fn create_virtual_camera() -> windows_core::Result<IMFVirtualCamera> {
     unsafe {
         let camera = MFCreateVirtualCamera(
             MFVirtualCameraType_SoftwareCameraSource,
-            MFVirtualCameraLifetime_Session,
+            MFVirtualCameraLifetime_System,
             MFVirtualCameraAccess_CurrentUser,
             &HSTRING::from(FRIENDLY_NAME),
             &HSTRING::from(SOURCE_CLSID),
@@ -36,11 +39,37 @@ pub fn create_virtual_camera() -> windows_core::Result<IMFVirtualCamera> {
     }
 }
 
+/// Lets go of the camera on normal exit. The device stays registered; while
+/// nothing publishes frames, clients see the source's idle pattern.
+pub fn release_virtual_camera(camera: &IMFVirtualCamera) {
+    unsafe {
+        let _ = camera.Shutdown();
+    }
+}
+
+/// Unregisters the camera, deleting the device and its settings.
 pub fn remove_virtual_camera(camera: &IMFVirtualCamera) {
     unsafe {
         let _ = camera.Stop();
         let _ = camera.Remove();
         let _ = camera.Shutdown();
+    }
+}
+
+/// Opens the registered camera (if any) and removes it, for `--remove-camera`.
+pub fn unregister_virtual_camera() -> windows_core::Result<()> {
+    unsafe {
+        let camera = MFCreateVirtualCamera(
+            MFVirtualCameraType_SoftwareCameraSource,
+            MFVirtualCameraLifetime_System,
+            MFVirtualCameraAccess_CurrentUser,
+            &HSTRING::from(FRIENDLY_NAME),
+            &HSTRING::from(SOURCE_CLSID),
+            None,
+        )?;
+        let removed = camera.Remove();
+        let _ = camera.Shutdown();
+        removed
     }
 }
 
@@ -131,7 +160,7 @@ fn controller_thread(control: &Control) {
     publisher::run(control);
 
     if let Some(camera) = camera {
-        remove_virtual_camera(&camera);
+        release_virtual_camera(&camera);
     }
     if started.is_ok() {
         unsafe { let _ = MFShutdown(); }

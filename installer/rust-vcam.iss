@@ -76,10 +76,24 @@ begin
   Result := '';
 end;
 
+procedure RemoveCamera();
+var
+  ResultCode: Integer;
+begin
+  { The camera device outlives the app (system lifetime, so its Windows
+    settings stick); unregister it while vcam-app.exe and the camera DLL are
+    still here, or a dead "Rust VCam" device stays behind. }
+  if not Exec(ExpandConstant('{app}\vcam-app.exe'), '--remove-camera', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    Log('Could not run vcam-app.exe --remove-camera')
+  else
+    Log(Format('vcam-app.exe --remove-camera exited with %d', [ResultCode]));
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usUninstall then
   begin
+    RemoveCamera();
     StopCameraServices();
     { Also remove the autostart entry if it was turned on from the app. }
     RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'RustVCam');

@@ -6,8 +6,10 @@ replacement.
 
 Setup installs the app, registers the Rust VCam camera with Windows (this is
 why it needs administrator rights once), and adds a Start menu shortcut. The
-app itself runs as you and lives in the system tray; closing its window keeps
-the camera available, and "Quit" in the tray menu removes it.
+app itself runs as you and lives in the system tray. The camera stays
+registered even after "Quit" (it then shows a dim idle pattern), so Windows
+keeps its settings, such as "Allow multiple apps to use camera at the same
+time", between runs.
 
 Included models and licenses
 - Robust Video Matting (RVM) MobileNetV3, fp16 and fp32
